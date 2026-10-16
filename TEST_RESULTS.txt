@@ -1,0 +1,16 @@
+E-Nay MVC verification — 16 October 2026
+
+Environment: Windows, OpenJDK 17.0.18, Python 3 (bundled runtime)
+Command: python tests/run_tests.py
+Compilation: javac -encoding UTF-8 -Xlint:all; no compiler warnings
+
+PASS: 300 regression assertions
+PASS: 141 validation assertions
+PASS: 32 additional safety assertions
+PASS: clean-directory normalized save/load and root/src data layout
+PASS: 31 console scenarios
+
+Total: 473 Java assertions plus 31 console scenarios.
+The existing test suite was adapted to the MVC class boundaries.
+All test data was fictional and created in disposable temporary directories.
+GitHub Actions runs this suite on pushes and pull requests.
