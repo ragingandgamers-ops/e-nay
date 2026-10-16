@@ -1,0 +1,11 @@
+out/
+*.class
+__pycache__/
+.idea/
+.vscode/
+*.iml
+data/*
+!data/README.md
+*.tmp
+*.backup
+*.log
