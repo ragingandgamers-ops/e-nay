@@ -1,8 +1,7 @@
 @echo off
 cd /d "%~dp0"
 if not exist out mkdir out
-(for /r src %%f in (*.java) do @echo "%%f") > out\sources.txt
-javac -encoding UTF-8 -d out @out\sources.txt
+powershell -NoProfile -Command "$enaySources = @(Get-ChildItem -LiteralPath src -Recurse -Filter *.java | ForEach-Object FullName); & javac -encoding UTF-8 -d out $enaySources; exit $LASTEXITCODE"
 if errorlevel 1 (
     echo E-Nay compilation failed. Check JDK 17 or later.
     pause
