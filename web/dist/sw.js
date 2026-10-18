@@ -1,5 +1,5 @@
 /* One same-origin shell; no patient data is sent over the network. */
-const CACHE='enay-shell-v3';
+const CACHE='enay-shell-v4';
 const FILES=['./','./index.html','./styles.css','./app.mjs','./core.mjs','./manifest.webmanifest','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./assets/mother-baby.webp','./assets/mother-baby-small.webp','./assets/mother-child.webp','./assets/mother-child-small.webp'];
 const urls=FILES.map(p=>new URL(p,self.location.href).href);
 self.addEventListener('install',event=>event.waitUntil((async()=>{

@@ -176,6 +176,11 @@ function connection(){const status=$('#offline-status');status.textContent=offli
 window.addEventListener('online',connection);window.addEventListener('offline',connection);connection();
 if('serviceWorker' in navigator){
  navigator.serviceWorker.addEventListener('message',e=>{if(e.data?.type==='OFFLINE_READY'){offlineReady=true;connection();}});
- navigator.serviceWorker.register('./sw.js').then(()=>navigator.serviceWorker.ready).then(reg=>{(navigator.serviceWorker.controller??reg.active)?.postMessage({type:'CHECK_OFFLINE'});}).catch(()=>{$('#offline-status').textContent='Offline setup unavailable';});
- navigator.serviceWorker.addEventListener('controllerchange',()=>navigator.serviceWorker.controller?.postMessage({type:'CHECK_OFFLINE'}));
+ const checkCachedShell=()=>navigator.serviceWorker.controller?.postMessage({type:'CHECK_OFFLINE'});
+ // A browser may reject register() while offline even when an installed worker
+ // controls this page. Check that worker independently of network registration.
+ checkCachedShell();
+ navigator.serviceWorker.ready.then(reg=>{(navigator.serviceWorker.controller??reg.active)?.postMessage({type:'CHECK_OFFLINE'});});
+ navigator.serviceWorker.register('./sw.js').then(checkCachedShell).catch(()=>{if(navigator.serviceWorker.controller)checkCachedShell();else if(!offlineReady)$('#offline-status').textContent='Offline setup unavailable';});
+ navigator.serviceWorker.addEventListener('controllerchange',checkCachedShell);
 }else $('#offline-status').textContent='Browser does not support offline access';
