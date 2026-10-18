@@ -28,9 +28,11 @@ public class FileRecordRepository implements RecordRepository {
     private final String MATERNAL_FILE;
     private final String CHILD_FILE;
     private final String BINARY_FILE;
+    private final Path dataDirectory;
     private final List<String> messages = new ArrayList<>();
 
     public FileRecordRepository(Path dataDirectory) {
+        this.dataDirectory = Objects.requireNonNull(dataDirectory, "Data directory").toAbsolutePath().normalize();
         MATERNAL_FILE = dataDirectory.resolve("maternal_records.txt").toString();
         CHILD_FILE = dataDirectory.resolve("child_records.txt").toString();
         BINARY_FILE = dataDirectory.resolve("system_data.dat").toString();
@@ -45,11 +47,14 @@ public class FileRecordRepository implements RecordRepository {
     @Override public boolean maternalFull() { return maternalCount >= maternalRecords.length; }
     @Override public boolean childFull() { return childCount >= childRecords.length; }
     @Override public boolean hasUnsavedChanges() { return maternalDirty || childDirty; }
+    @Override public boolean canSave() { return maternalSaveAllowed && childSaveAllowed; }
+    @Override public Path dataDirectory() { return dataDirectory; }
     @Override public boolean containsId(String id, boolean maternal) {
         return maternal ? maternalRecords().stream().anyMatch(r -> r.getProfileId().equalsIgnoreCase(id))
                 : childRecords().stream().anyMatch(r -> r.getChildId().equalsIgnoreCase(id));
     }
     @Override public void addMaternal(MaternalProfile record) throws InvalidRecordException {
+        if (record == null) throw new InvalidRecordException("Maternal record cannot be empty.");
         if (maternalFull()) throw new InvalidRecordException("Maternal record array is full!");
         if (containsId(record.getProfileId(), true)) throw new InvalidRecordException("ID already exists. Enter a unique ID.");
         ValidationUtils.newEdd(ValidationUtils.date(record.getExpectedDeliveryDate(), "Expected delivery date"));
@@ -57,11 +62,52 @@ public class FileRecordRepository implements RecordRepository {
         maternalDirty = true;
     }
     @Override public void addChild(ChildProfile record) throws InvalidRecordException {
+        if (record == null) throw new InvalidRecordException("Child record cannot be empty.");
         if (childFull()) throw new InvalidRecordException("Child record array is full!");
         if (containsId(record.getChildId(), false)) throw new InvalidRecordException("ID already exists. Enter a unique ID.");
         ValidationUtils.newDob(ValidationUtils.date(record.getDateOfBirth(), "Date of Birth"));
         childRecords[childCount++] = record;
         childDirty = true;
+    }
+    @Override public void updateMaternal(String originalId, MaternalProfile record) throws InvalidRecordException {
+        String id = ValidationUtils.profileId(originalId);
+        if (record == null) throw new InvalidRecordException("Maternal record cannot be empty.");
+        if (!id.equals(record.getProfileId())) {
+            throw new InvalidRecordException("A maternal record's ID cannot be changed.");
+        }
+        for (int i = 0; i < maternalCount; i++) {
+            MaternalProfile previous = maternalRecords[i];
+            if (!id.equals(previous.getProfileId())) continue;
+            if (!previous.getExpectedDeliveryDate().equals(record.getExpectedDeliveryDate())) {
+                ValidationUtils.newEdd(ValidationUtils.date(record.getExpectedDeliveryDate(), "Expected delivery date"));
+            }
+            if (!previous.toTextFormat().equals(record.toTextFormat())) {
+                maternalRecords[i] = record;
+                maternalDirty = true;
+            }
+            return;
+        }
+        throw new InvalidRecordException("Maternal record was not found: " + id);
+    }
+    @Override public void updateChild(String originalId, ChildProfile record) throws InvalidRecordException {
+        String id = ValidationUtils.childId(originalId);
+        if (record == null) throw new InvalidRecordException("Child record cannot be empty.");
+        if (!id.equals(record.getChildId())) {
+            throw new InvalidRecordException("A child record's ID cannot be changed.");
+        }
+        for (int i = 0; i < childCount; i++) {
+            ChildProfile previous = childRecords[i];
+            if (!id.equals(previous.getChildId())) continue;
+            if (!previous.getDateOfBirth().equals(record.getDateOfBirth())) {
+                ValidationUtils.newDob(ValidationUtils.date(record.getDateOfBirth(), "Date of Birth"));
+            }
+            if (!previous.toTextFormat().equals(record.toTextFormat())) {
+                childRecords[i] = record;
+                childDirty = true;
+            }
+            return;
+        }
+        throw new InvalidRecordException("Child record was not found: " + id);
     }
     @Override public void loadRecords() { loadTextRecords(); }
     @Override public void loadMetadata() { loadSystemData(); }

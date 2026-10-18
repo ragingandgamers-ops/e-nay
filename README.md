@@ -2,35 +2,41 @@
 
 E-Nay is an offline Java application for managing maternal and child health records in rural communities. The project supports SDG 3 (Good Health and Well-being) and SDG 10 (Reduced Inequalities).
 
-## Run
+## Desktop app
 
-Install **JDK 17 or later** and make `java` and `javac` available on PATH. No external Java libraries are needed.
+The JavaFX interface provides an overview dashboard, maternal and child registries, search/status filters, record details, validated add/edit forms, active/inactive status, local backup export, and storage diagnostics.
 
-On Windows, double-click `run.bat`, or open PowerShell in this folder and run:
+![E-Nay desktop overview](docs/images/desktop-overview.png)
 
-```powershell
-New-Item -ItemType Directory -Force out | Out-Null
-$sources = @(Get-ChildItem src -Recurse -Filter *.java | ForEach-Object FullName)
-javac -encoding UTF-8 -d out $sources
-java -cp out enay.Main
-```
+On Windows, install a **64-bit JDK 17 or later**, extract/clone the project into a writable folder, and double-click **`run-desktop.bat`**. The first setup downloads checksum-verified JavaFX libraries; subsequent starts use the cache and work offline. Maven and Python are not needed to run the desktop app.
 
-On Linux/macOS:
+On Linux/macOS, use `sh scripts/desktop.sh`. See [desktop setup](docs/DESKTOP.md) for platform requirements, offline caching, Maven/IDE support, build-only commands, and GUI tests.
+
+Adding or editing a profile saves automatically after validation. Failed saves keep the change in memory with a visible unsaved warning. Use **Save changes** to retry, **Reload** to read repaired/external files, and **Data & backup** to export a ZIP of the saved records. Export never rewrites the source files. Existing IDs stay fixed; use status Inactive when monitoring ends. Historical dates may remain unchanged during an edit.
+
+## Console app
+
+The original seven-option console remains available with no external Java libraries:
+
+- Windows: double-click `run.bat` or run `./run.ps1`.
+- Linux/macOS:
 
 ```sh
 mkdir -p out
-find src -name '*.java' > /tmp/enay-sources.txt
+find src -name '*.java' ! -path '*/desktop/*' > /tmp/enay-sources.txt
 javac -encoding UTF-8 -d out @/tmp/enay-sources.txt
 java -cp out enay.Main
 ```
 
-Launch from the project root. The first run starts with no records. Options 1–2 add records, 3–4 display them, 5 saves, 6 reloads, and 7 exits. There are no login credentials. Save before closing the application; closing the terminal does not save automatically.
+Launch from the project root. There are no login credentials or sample patient records. Both interfaces share `data/` and the process lock, so close one before opening the other. Console options 1–2 add, 3–4 display, 5 saves, 6 reloads, and 7 exits. The console still requires an explicit save; closing the terminal does not save automatically.
 
 ## MVC structure
 
 ```text
 src/enay/
-  Main.java                         Application startup and process lock
+  Main.java                         Console startup and process lock
+  desktop/                          JavaFX view, controller, app and CSS
+  service/                          Byte-preserving ZIP backup export
   model/                            MaternalProfile and ChildProfile
   view/                             RecordView interface and ConsoleView
   controller/                       RecordController
@@ -44,7 +50,7 @@ data/                               Local records (excluded from Git)
 
 The **model** encapsulates record fields and validation. The **view** owns prompts and presentation. The **controller** coordinates user actions through `RecordView` and `RecordRepository`. The repository owns in-memory collections and file persistence and returns diagnostic messages for the controller to pass to the view. `Main` creates and connects these objects.
 
-The current interface is a console. A future Swing implementation can use the view interface without putting file operations inside GUI event handlers. No Swing UI or background worker is implemented yet.
+The console controller uses the synchronous RecordView interface. The desktop has an event-driven DesktopView.Actions boundary and a single background storage executor. Its controller calls the same repository interface; widgets never read/write files. All scene changes happen on the JavaFX application thread. Shutdown finishes accepted storage work before releasing the data lock.
 
 Read [the architecture guide](docs/ARCHITECTURE.md) and [the team workflow](CONTRIBUTING.md) before changing shared interfaces.
 
@@ -81,4 +87,12 @@ With Python 3 and JDK 17+:
 python tests/run_tests.py
 ```
 
-Tests create disposable directories. They cover field normalization, boundaries, historical records, malformed files, save rollback, unsaved-change prompts, concurrent process locking, external modifications, and a save/reload across separate JVMs. See [TEST_RESULTS.txt](TEST_RESULTS.txt) for the recorded run.
+Core tests create disposable directories. JavaFX screens are tested separately after building:
+
+```sh
+python tests/run_desktop_tests.py --module-path .javafx/17.0.18/win
+```
+
+On Linux CI use `xvfb-run -a` and the `linux` module directory. Desktop tests drive actual JavaFX forms, filtering, edits, auto-save, failed saves, backup preservation, reload confirmation, shutdown ordering and compact layout.
+
+The core tests cover field normalization, boundaries, historical records, malformed files, save rollback, unsaved-change prompts, concurrent process locking, external modifications, and a save/reload across separate JVMs. See [TEST_RESULTS.txt](TEST_RESULTS.txt) for the recorded run.

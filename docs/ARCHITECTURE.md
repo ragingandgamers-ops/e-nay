@@ -2,6 +2,11 @@
 
 ```mermaid
 flowchart TD
+    DesktopApp[DesktopApplication: composition and shared lock] --> DesktopController
+    DesktopApp --> DesktopView[JavaFX DesktopView and CSS]
+    DesktopController --> DesktopView
+    DesktopController --> StoreAPI
+    DesktopController --> BackupExporter[Byte-preserving backup export]
     Main[Main: composition and process lock] --> Controller[RecordController]
     Main --> View[ConsoleView implements RecordView]
     Main --> Store[FileRecordRepository implements RecordRepository]
@@ -22,7 +27,7 @@ flowchart TD
 
 `MaternalProfile` and `ChildProfile` have private fields and getters, validated constructors, text parsers, and storage formatting. `ValidationUtils` normalizes IDs, names, dates, ages, and allowed values. Constructors enforce validity for loaded records; new-registration date eligibility is also enforced by repository add methods.
 
-`RecordRepository` is the model/data boundary for the controller. Its file implementation owns two arrays of capacity 100, duplicate checks, dirty flags, safe-load flags, and source fingerprints. It returns immutable list snapshots, so callers cannot change its collections. Separate repository instances have separate state.
+`RecordRepository` is the model/data boundary for the controller. Its file implementation owns two arrays of capacity 100, duplicate checks, dirty flags, safe-load flags, and source fingerprints. It returns immutable list snapshots, so callers cannot change its collections. Separate repository instances have separate state. Update methods retain IDs, check that a record exists, and mark changes dirty only when fields actually change. Unchanged historical dates remain allowed; changed dates must meet new-entry eligibility.
 
 ## View
 
@@ -30,13 +35,13 @@ flowchart TD
 
 ## Controller
 
-`RecordController` depends on `RecordView` and `RecordRepository`, supplied through its constructor. It loads records at startup, dispatches menu actions, checks unique IDs, constructs profiles after field collection, requests saves and reloads, and coordinates unsaved-change confirmation. It has no console or file API calls. Replacing the console with an event-driven GUI will require adapting the current synchronous interaction flow.
+`RecordController` depends on `RecordView` and `RecordRepository`, supplied through its constructor. It loads records at startup, dispatches menu actions, checks unique IDs, constructs profiles after field collection, requests saves and reloads, and coordinates unsaved-change confirmation. It has no console or file API calls. The desktop has a separate event-driven DesktopController rather than blocking the FX thread with console prompts. It queues repository actions on one executor, returns immutable snapshots to DesktopView on the FX thread, and auto-saves after mutations. Save failure retains dirty state and a visible warning. Reload/exit confirms before discarding unsaved changes. A non-daemon storage worker drains accepted work before the app releases its process lock, including programmatic shutdown.
 
 ## Persistence and startup
 
 `FileRecordRepository` retains the original UTF-8 pipe-delimited formats and binary counts. It reports messages through `drainMessages()`, which the controller passes to the view. A missing file preserves memory; malformed rows are skipped; all-invalid, unreadable, and over-capacity sources block saving. File fingerprints reject unexpected external changes. Save All stages closed replacement files, retains backups during replacement, and attempts rollback after ordinary I/O failures.
 
-`Main` resolves the data directory, obtains the process lock, constructs the repository/view/controller, and runs the controller. Launch from the repository root or its `src` folder to use the same `data` folder. The persistent lock filename may remain after exit; the OS releases the lock. No database, login, Swing interface, background worker, clinical classifier, or crash-safe multi-file transaction is implemented.
+`Main` resolves the data directory, obtains the process lock, constructs the repository/view/controller, and runs the controller. Launch from the repository root or its `src` folder to use the same `data` folder. The persistent lock filename may remain after exit; the OS releases the lock. DesktopApplication uses the same lock file and data directory. The JavaFX view contains dashboard, record tables/details, validated modals and backup/settings screens. BackupExporter copies saved files without changing them, including malformed rows that loading skipped. Unsaved changes must be saved before export. No database, login, clinical classifier, or crash-safe multi-file transaction is implemented.
 
 ## Data dictionary
 

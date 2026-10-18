@@ -1,16 +1,36 @@
-E-Nay MVC verification — 16 October 2026
+E-Nay desktop - executed verification
+Date: 2026-10-18
+Environment: Windows x64, OpenJDK 17.0.18, Python 3, JavaFX 17.0.18
 
-Environment: Windows, OpenJDK 17.0.18, Python 3 (bundled runtime)
-Command: python tests/run_tests.py
-Compilation: javac -encoding UTF-8 -Xlint:all; no compiler warnings
-
-PASS: 300 regression assertions
+Core command: python tests/run_tests.py
+Compilation: javac -encoding UTF-8 -Xlint:all (no warnings)
+PASS: 300 recovery/persistence assertions
+PASS: 13 backup export assertions
+PASS: 96 desktop repository editing assertions
 PASS: 141 validation assertions
 PASS: 32 additional safety assertions
 PASS: clean-directory normalized save/load and root/src data layout
 PASS: 31 console scenarios
+Core assertion total: 582
 
-Total: 473 Java assertions plus 31 console scenarios.
-The existing test suite was adapted to the MVC class boundaries.
-All test data was fictional and created in disposable temporary directories.
-GitHub Actions runs this suite on pushes and pull requests.
+Desktop build: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop.ps1 -BuildOnly
+PASS: complete desktop compilation, CSS copied, cached verified JavaFX libraries
+
+Desktop checks: python tests/run_desktop_tests.py --module-path .javafx/17.0.18/win
+PASS: 48 real JavaFX workflow assertions
+Combined assertion total: 630
+Covers real JavaFX controls: inline ID/name/age/date errors, corrected form submission,
+auto-save and normalized files, detail/edit forms, immutable IDs, status changes,
+search/filter, child DOB boundary, backup export and malformed-byte preservation,
+failed-save dirty state, reload cancel/discard, blocked-storage status, compact layout,
+and draining background work before shutdown resource release.
+
+Launcher verification:
+PASS: Windows PowerShell 5.1 with project path containing spaces
+PASS: corrupt cache detected and repaired using verified Maven Central artifact
+PASS: cached launcher, arguments containing spaces, and CSS discovery
+PASS: POSIX launcher syntax check
+
+All test data were fictional and created in disposable folders. The live data folder
+was not read for screenshots or uploaded. Native Linux/macOS UI execution was not
+performed locally; GitHub Actions includes Linux/Xvfb desktop checks.

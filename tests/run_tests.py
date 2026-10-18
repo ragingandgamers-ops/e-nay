@@ -16,12 +16,24 @@ def main():
         build = root / "classes"
         build.mkdir()
         subprocess.run(["javac", "-encoding", "UTF-8", "-Xlint:all", "-d", str(build),
-                        *map(str, SOURCE.rglob("*.java")),
+                        *map(str, (path for path in SOURCE.rglob("*.java") if "desktop" not in path.parts)),
                         *map(str, (PROJECT / "tests").glob("*Tests.java"))], check=True)
         unit = root / "regression"
         unit.mkdir()
         result = subprocess.run(["java", "-cp", str(build), "RegressionTests"], cwd=unit,
                                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        if result.returncode:
+            raise AssertionError(result.stdout + result.stderr)
+        print(result.stdout.splitlines()[-1])
+        result = subprocess.run(["java", "-cp", str(build), "BackupExportTests"], cwd=unit,
+                                capture_output=True, text=True, encoding="utf-8", timeout=60)
+        if result.returncode:
+            raise AssertionError(result.stdout + result.stderr)
+        print(result.stdout.splitlines()[-1])
+        desktop_repository = root / "desktop-repository"
+        desktop_repository.mkdir()
+        result = subprocess.run(["java", "-cp", str(build), "DesktopRepositoryTests"], cwd=desktop_repository,
+                                capture_output=True, text=True, encoding="utf-8", timeout=60)
         if result.returncode:
             raise AssertionError(result.stdout + result.stderr)
         print(result.stdout.splitlines()[-1])

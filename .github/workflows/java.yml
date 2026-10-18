@@ -15,3 +15,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: python tests/run_tests.py
+      - name: Set up desktop display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libasound2t64
+      - name: Build JavaFX desktop
+        run: sh scripts/desktop.sh --build-only
+      - name: Test desktop workflows
+        run: xvfb-run -a python tests/run_desktop_tests.py --module-path .javafx/17.0.18/linux

@@ -1,4 +1,8 @@
 out/
+out-desktop/
+.javafx/
+target/
+test-output/
 *.class
 __pycache__/
 .idea/
