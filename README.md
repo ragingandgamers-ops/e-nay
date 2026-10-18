@@ -2,6 +2,14 @@
 
 E-Nay is an offline Java application for managing maternal and child health records in rural communities. The project supports SDG 3 (Good Health and Well-being) and SDG 10 (Reduced Inequalities).
 
+## Website and mobile workspace
+
+The new [browser edition](web/README.md) has an inviting website with real licensed photography and an installable, responsive PWA. It provides local maternal/child profiles, visits and food/symptom notes, staff-entered vaccinations, child measurements and charts, vaccine inventory, cached guides, and reviewed backup/import flows. Open once while connected and wait for **Offline ready** before using it without internet.
+
+Run `python -m http.server 8765 --bind 127.0.0.1 --directory web/dist` from this folder, then open `http://127.0.0.1:8765/`. A phone uses the deployed HTTPS site and its browser's installation menu.
+
+Browser data stays on that device and is separate from Java's `data/` folder. Transfer original Java profiles using text import/export; transfer the complete web workspace using a JSON backup. The [web documentation](web/README.md) explains offline setup, security limits, compatibility, and proposal features that still require clinical specification. No AI-generated photographs are included.
+
 ## Desktop app
 
 The JavaFX interface provides an overview dashboard, maternal and child registries, search/status filters, record details, validated add/edit forms, active/inactive status, local backup export, and storage diagnostics.

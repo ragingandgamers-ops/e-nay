@@ -13,3 +13,8 @@ data/*
 *.tmp
 *.backup
 *.log
+tmp/
+web/.git/
+web/.sites-runtime/
+web/.sites-checkout/
+web/node_modules/

@@ -1,0 +1,9 @@
+{
+  "name": "enay-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A buildless, offline-capable maternal and child care workspace.",
+  "scripts": {"test": "node --test tests/core.test.mjs", "test:browser": "node tests/browser.test.mjs"},
+  "devDependencies": {"playwright": "1.62.1"}
+}
