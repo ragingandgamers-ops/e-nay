@@ -23,6 +23,21 @@ jobs:
       - name: Browser, mobile, and offline workflows
         run: |
           python -m http.server 8765 --bind 127.0.0.1 --directory web/dist > /tmp/enay-web-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import time
+          import urllib.request
+          for attempt in range(100):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:8765/', timeout=0.5) as response:
+                      if response.status == 200:
+                          break
+              except OSError:
+                  time.sleep(0.1)
+          else:
+              raise SystemExit('The browser-test preview server did not become ready.')
+          PY
           node web/tests/browser.test.mjs
       - name: Keep UI evidence
         if: always()
