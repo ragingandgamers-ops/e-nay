@@ -1,0 +1,47 @@
+name: E-Nay web checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Core validation and recovery tests
+        run: node --test web/tests/core.test.mjs
+      - name: Browser test dependencies
+        working-directory: web
+        run: |
+          npm install --ignore-scripts
+          npx playwright install --with-deps chromium
+      - name: Browser, mobile, and offline workflows
+        run: |
+          python -m http.server 8765 --bind 127.0.0.1 --directory web/dist > /tmp/enay-web-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import time
+          import urllib.request
+          for attempt in range(100):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:8765/', timeout=0.5) as response:
+                      if response.status == 200:
+                          break
+              except OSError:
+                  time.sleep(0.1)
+          else:
+              raise SystemExit('The browser-test preview server did not become ready.')
+          PY
+          node web/tests/browser.test.mjs
+      - name: Keep UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-screenshots
+          path: test-output/web/

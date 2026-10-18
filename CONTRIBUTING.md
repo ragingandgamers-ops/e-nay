@@ -7,7 +7,7 @@ Keep changes small and focused on one feature. Choose a branch before editing; d
 | Area | Files | Responsibility |
 | --- | --- | --- |
 | Model | `src/enay/model/` | Record fields, constructors, parsing and serialization |
-| View | `src/enay/view/` | Console prompts and display; future Swing screens |
+| View | `src/enay/view/` | Console prompts and display; JavaFX screens |
 | Controller | `src/enay/controller/` | Registration, navigation, save/reload coordination |
 | Data storage | `src/enay/repository/` | Collections, file format, loading, saving and recovery |
 | Validation | `src/enay/validation/`, `exception/` | Shared input and business rules |
@@ -51,6 +51,6 @@ git switch -c feature/next-feature
 - Storage returns diagnostics; the controller sends them to the view.
 - Keep local patient data out of commits. Use fictional data in tests.
 - Update the architecture and launch documentation when changing packages or entry points.
-- Keep the seven menu actions compatible unless a coordinated feature change requires otherwise.
+- Keep the seven console menu actions compatible. Desktop navigation is event-driven and preserves the same record/storage rules.
 
-The current application is single-threaded. A Swing migration will need an event-driven controller contract and background I/O with Swing updates on the event dispatch thread; do not claim those are already implemented.
+The console remains synchronous. The JavaFX controller serializes all repository work on a background executor and updates controls on the FX application thread. Do not access the repository directly from a widget or add a second concurrent storage worker. Run core tests plus desktop screen tests when changing the UI or shared repository.

@@ -1,4 +1,8 @@
 out/
+out-desktop/
+.javafx/
+target/
+test-output/
 *.class
 __pycache__/
 .idea/
@@ -9,3 +13,8 @@ data/*
 *.tmp
 *.backup
 *.log
+tmp/
+web/.git/
+web/.sites-runtime/
+web/.sites-checkout/
+web/node_modules/
