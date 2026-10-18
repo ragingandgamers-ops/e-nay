@@ -24,3 +24,7 @@ node web/tests/service-worker.test.mjs
 ```
 
 Screenshots are saved under ignored test-output/web/. Phone testing uses Chromium viewport/touch emulation, not physical iOS/Safari. Current Java sources were unchanged; their earlier verification remains in the repository-level TEST_RESULTS.txt. This is not a security audit or clinical validation, and passing implemented-feature tests does not establish proposal completeness. Remaining clinical proposal modules and offline revocation limits are listed in web/README.md.
+
+## Hygieia design revision — 19 October 2026
+
+The 66 functional, 16 presentation and 17 account browser assertions and hosting-cache recovery regression were rerun successfully after the new design was applied. Desktop, sign-in, staff workspace and compact mobile record-card screenshots were reviewed. Computed font loading confirmed the locally hosted Plus Jakarta Sans face; primary buttons compute to #DA1B2E and the ten supplied palette stops match. Text contrast checks: primary button 5.03:1, active navigation 7.09:1, body 16.18:1, secondary text 5.95:1, success 6.43:1 and warning 6.04:1. These checks do not constitute a complete accessibility audit.

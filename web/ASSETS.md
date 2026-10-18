@@ -12,3 +12,9 @@ Sources and licenses checked 18 October 2026. Images were resized and compressed
 `icon.svg` is a code-drawn heart/leaf mark. PNG installation icons use the same simple geometric motif. The phone preview is HTML/CSS with explicitly fictional sample records; it is not a photograph or a screenshot of real patients. The live workspace starts empty.
 
 No third-party web font, icon library, analytics script, image CDN, or runtime JavaScript dependency is requested by the website. Photos and app assets are hosted with the app and included in its offline cache.
+
+## Interface reference and typography
+
+Design direction adapted from [asklepios UI Kit](https://www.figma.com/community/file/1334783556016489959/asklepios-ui-kit-ai-healthcare-wellness-app) by strangehelix.bio, using the Hygieia Red palette provided by the user. The public community page lists CC BY 4.0. See DESIGN_SYSTEM.md for implementation details.
+
+Plus Jakarta Sans by Tokotype is distributed from the official Google Fonts source under SIL OFL 1.1. The local font and complete license are included in dist/assets/. PWA icons and interface outline icons are code-native SVG; existing photography remains unchanged.

@@ -13,7 +13,7 @@ if(testMode){
  const password=await passwordHash('Fictional-test-password-2026!');
  for(const [username,role] of [['test.staff','staff'],['test.patient','patient'],['other.patient','patient']])await db.prepare('INSERT INTO accounts(id,username,display_name,password_hash,role,created_at) VALUES(?,?,?,?,?,?)').bind(crypto.randomUUID(),username,'Fictional '+username,password,role,Date.now()).run();
 }
-const mime={html:'text/html',mjs:'application/javascript',js:'application/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',webp:'image/webp',webmanifest:'application/manifest+json'};
+const mime={ttf:'font/ttf',txt:'text/plain',html:'text/html',mjs:'application/javascript',js:'application/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',webp:'image/webp',webmanifest:'application/manifest+json'};
 const assets={async fetch(request){
  const path=new URL(request.url).pathname;
  if(path==='/index.html')return new Response(null,{status:308,headers:{Location:'/'}});

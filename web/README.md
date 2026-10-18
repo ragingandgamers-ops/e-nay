@@ -69,3 +69,7 @@ node web/tests/service-worker.test.mjs
 ```
 
 The suites cover core validation/recovery, API authorization and role revocation, linked-only patient reads, offline encrypted unlock, wrong passwords, sign-out, malformed imports, stale tabs/devices, idempotent saves, mobile layouts, reduced motion and hosting-cache recovery. Browser screenshots go to ignored test-output/web/. BROWSER_BIN, PLAYWRIGHT_MODULE and ENAY_URL may select local testing dependencies/URL. Tests use fictional records only; physical iPhone/Safari has not been tested.
+
+## Visual design
+
+The 19 October revision applies the Asklepios reference with the supplied Hygieia Red palette, local Plus Jakarta Sans typography, rounded components and outline navigation icons. [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) records tokens, attribution, font licensing and component conventions. The font is cached with the public shell for offline use. No AI-generated imagery is used.

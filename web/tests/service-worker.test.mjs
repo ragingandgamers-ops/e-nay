@@ -6,7 +6,7 @@ import {createRequire} from 'node:module';
 const {chromium}=createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE||'playwright');
 const files=new Map();
 const root=new URL('../dist/',import.meta.url);
-const types={html:'text/html',mjs:'application/javascript',js:'application/javascript',css:'text/css',webmanifest:'application/manifest+json',png:'image/png',webp:'image/webp',svg:'image/svg+xml'};
+const types={ttf:'font/ttf',txt:'text/plain',html:'text/html',mjs:'application/javascript',js:'application/javascript',css:'text/css',webmanifest:'application/manifest+json',png:'image/png',webp:'image/webp',svg:'image/svg+xml'};
 // Match Pages' canonical HTML redirect, which a plain Python server misses.
 const server=createServer(async(req,res)=>{
  const path=new URL(req.url,'http://localhost').pathname;
