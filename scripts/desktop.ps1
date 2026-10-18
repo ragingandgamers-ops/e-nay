@@ -27,6 +27,18 @@ function Find-EnayJavaTool([string]$Name) {
     return $enayCommand.Source
 }
 
+function Get-EnayFileHash([string]$Path) {
+    # Use the framework directly; some Windows PowerShell hosts do not autoload Get-FileHash.
+    $enayStream = [System.IO.File]::OpenRead($Path)
+    $enayHasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return [System.BitConverter]::ToString($enayHasher.ComputeHash($enayStream)).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $enayHasher.Dispose()
+        $enayStream.Dispose()
+    }
+}
+
 function Get-EnayJavaProperties([string]$JavaTool) {
     # java writes its properties to stderr; capture them without treating them as
     # PowerShell errors (including on Windows PowerShell 5.1).
@@ -65,14 +77,14 @@ try {
         $enayFileName = "javafx-$enayModule-$enayVersion-win.jar"
         $enayJar = Join-Path $enayCache $enayFileName
         $enayExpected = $enayHashes[$enayModule]
-        $enayValid = (Test-Path -LiteralPath $enayJar -PathType Leaf) -and ((Get-FileHash -LiteralPath $enayJar -Algorithm SHA256).Hash -eq $enayExpected)
+        $enayValid = (Test-Path -LiteralPath $enayJar -PathType Leaf) -and ((Get-EnayFileHash $enayJar) -eq $enayExpected)
         if (-not $enayValid) {
             $enayUrl = "https://repo.maven.apache.org/maven2/org/openjfx/javafx-$enayModule/$enayVersion/$enayFileName"
             $enayIncoming = "$enayJar.download.$PID"
             Write-Host "Setting up JavaFX $enayVersion ($enayModule)..."
             try {
                 Invoke-WebRequest -UseBasicParsing -Uri $enayUrl -OutFile $enayIncoming -TimeoutSec 120
-                if ((Get-FileHash -LiteralPath $enayIncoming -Algorithm SHA256).Hash -ne $enayExpected) { throw "Checksum verification failed: $enayFileName" }
+                if ((Get-EnayFileHash $enayIncoming) -ne $enayExpected) { throw "Checksum verification failed: $enayFileName" }
                 Move-Item -LiteralPath $enayIncoming -Destination $enayJar -Force
             } finally {
                 if (Test-Path -LiteralPath $enayIncoming -PathType Leaf) { Remove-Item -LiteralPath $enayIncoming -Force }
