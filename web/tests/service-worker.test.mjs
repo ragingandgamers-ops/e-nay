@@ -29,11 +29,11 @@ try{
  const redirect=await fetch(base+'index.html',{redirect:'manual'});
  assert.equal(redirect.status,308,'Fixture reproduces the production HTML redirect');
  await page.goto(base+'#workspace/mothers');
- await page.getByText('Offline ready · Saved on device',{exact:true}).waitFor();
+ await page.waitForFunction(()=>document.querySelector('#offline-status').textContent==='Offline ready · App downloaded');
  await page.evaluate(()=>localStorage.setItem('enay.sw-regression','preserved'));
  for(const path of ['','#workspace/mothers','index.html','start','?reload=1#workspace/children']){
   await page.goto(base+path);
-  await page.locator(path.includes('workspace')?'#page-content h1':'.hero-photo').waitFor();
+  await page.locator(path.includes('workspace')?'#auth-view h1':'.hero-photo').waitFor();
   assert.match(await page.title(),/E-Nay/);
  }
  await page.reload();
@@ -41,7 +41,7 @@ try{
  await context.setOffline(true);
  for(const path of ['#workspace/mothers','index.html#workspace/children','start#workspace/mothers']){
   await page.goto(base+path);
-  await page.locator('#page-content h1').waitFor();
+  await page.locator('#auth-view h1').waitFor();
  }
  assert.equal(await page.evaluate(async()=>{try{await fetch('./uncached-network-probe');return false;}catch{return true;}}),true);
  await context.setOffline(false);
@@ -67,7 +67,7 @@ try{
   repairPage.on('console',message=>{if(message.type()==='error')console.error('Upgrade console:',message.text());});
   repairPage.on('pageerror',error=>console.error('Upgrade page:',error.message));
   await repairPage.goto(base+'start#workspace/mothers');
-  await repairPage.getByText('Offline ready · Saved on device',{exact:true}).waitFor({timeout:15000}).catch(async error=>{
+  await repairPage.waitForFunction(()=>document.querySelector('#offline-status').textContent==='Offline ready · App downloaded',{timeout:15000}).catch(async error=>{
    console.error('Upgrade state:',await repairPage.evaluate(async()=>({status:document.querySelector('#offline-status')?.textContent,worker:navigator.serviceWorker.controller?.scriptURL,registrations:(await navigator.serviceWorker.getRegistrations()).map(r=>({active:r.active?.state,waiting:r.waiting?.state,installing:r.installing?.state})),caches:await caches.keys()})));throw error;
   });
   await oldPage.goto(base);

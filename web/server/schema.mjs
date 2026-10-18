@@ -1,0 +1,33 @@
+export const SCHEMA = `
+CREATE TABLE IF NOT EXISTS accounts (
+ id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+ display_name TEXT NOT NULL, password_hash TEXT NOT NULL,
+ role TEXT NOT NULL DEFAULT 'patient' CHECK(role IN ('patient','staff')),
+ active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+ proof_hash TEXT PRIMARY KEY, device_hash TEXT NOT NULL,
+ account_id TEXT NOT NULL REFERENCES accounts(id), expires_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS patient_links (
+ account_id TEXT NOT NULL REFERENCES accounts(id), patient_id TEXT NOT NULL,
+ PRIMARY KEY(account_id,patient_id)
+);
+CREATE TABLE IF NOT EXISTS workspace (
+ id TEXT PRIMARY KEY, revision TEXT NOT NULL, body TEXT NOT NULL,
+ last_operation TEXT, updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sync_operations (
+ id TEXT PRIMARY KEY, account_id TEXT NOT NULL, revision TEXT NOT NULL,
+ created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS auth_limits (
+ bucket TEXT PRIMARY KEY, attempts INTEGER NOT NULL, resets_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit_events (
+ id TEXT PRIMARY KEY, account_id TEXT NOT NULL, action TEXT NOT NULL,
+ revision TEXT, created_at INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO workspace(id,revision,body,updated_at)
+VALUES('clinic','initial','{"mothers":[],"children":[],"visits":[],"vaccines":[],"growth":[],"inventory":[]}',0);
+`;

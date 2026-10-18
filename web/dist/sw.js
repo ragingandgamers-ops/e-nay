@@ -1,8 +1,8 @@
-/* One same-origin shell; no patient data is sent over the network. */
-const CACHE='enay-shell-v6';
+/* Public app shell only. Private API responses are never cached here. */
+const CACHE='enay-shell-v8';
 // Pages redirects index.html to ./; a cached redirected response cannot be
 // returned for a navigation request. Cache and serve the canonical entry URL.
-const FILES=['./','./styles.css','./app.mjs','./core.mjs','./motion.mjs','./manifest.webmanifest','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./assets/mother-baby.webp','./assets/mother-baby-small.webp','./assets/mother-child.webp','./assets/mother-child-small.webp'];
+const FILES=['./','./styles.css','./app.mjs','./accounts.mjs','./auth-ui.mjs','./core.mjs','./motion.mjs','./manifest.webmanifest','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./assets/mother-baby.webp','./assets/mother-baby-small.webp','./assets/mother-child.webp','./assets/mother-child-small.webp'];
 const urls=FILES.map(p=>new URL(p,self.location.href).href);
 self.addEventListener('install',event=>event.waitUntil((async()=>{
  const cache=await caches.open(CACHE);

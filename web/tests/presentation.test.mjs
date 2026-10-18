@@ -1,3 +1,4 @@
+import {signIn,resetClinic,privateCopy} from './session.mjs';
 import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
 import {createRequire} from 'node:module';
@@ -11,6 +12,7 @@ let checks=0;
 function check(result,message){assert.ok(result,message);checks++;}
 await mkdir('test-output/web',{recursive:true});
 try{
+ await resetClinic(base);
  const normal=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'no-preference'});
  const page=await makePage(normal);
  await page.goto(base);
@@ -30,7 +32,7 @@ try{
  check(await page.locator('.care-story img').evaluate(element=>getComputedStyle(element).transform==='none'),'Changing reduced-motion preference stops photo movement');
  await page.emulateMedia({reducedMotion:'no-preference'});
  await page.locator('.site-header a[href="#workspace"]').click();
- await page.locator('#page-content h1').waitFor();
+ await signIn(page);await page.locator('#page-content h1').waitFor();
  check(await page.getByRole('button',{name:'+ Add a profile',exact:true}).isEnabled(),'Workspace entry transition keeps actions usable');
  await normal.close();
 
@@ -42,7 +44,7 @@ try{
  check(await quiet.locator('.care-story figure').evaluate(element=>getComputedStyle(element).opacity==='1'),'Reduced-motion sections do not wait for a reveal');
  check(await quiet.locator('.care-story img').evaluate(element=>getComputedStyle(element).transform==='none'),'Reduced-motion photographs do not drift');
  await quiet.goto(base+'#workspace');
- await quiet.locator('#page-content h1').waitFor();
+ await signIn(quiet);await quiet.locator('#page-content h1').waitFor();
  check(await quiet.evaluate(()=>document.getAnimations().every(animation=>animation.playState!=='running')),'Reduced-motion workspace has no running entrance animation');
  await reduced.close();
 
@@ -51,7 +53,7 @@ try{
  await embedded.addInitScript(()=>Object.defineProperty(navigator,'serviceWorker',{value:undefined,configurable:true}));
  const mobile=await makePage(embedded);
  await mobile.goto(base+'#workspace');
- await mobile.getByText('Offline unavailable here',{exact:true}).waitFor();
+ await signIn(mobile);await mobile.getByText('Offline unavailable here',{exact:true}).waitFor();
  check(await mobile.locator('#offline-guidance').isVisible(),'Unsupported browser receives actionable offline guidance');
  await mobile.getByRole('button',{name:'How to open & install',exact:true}).click();
  check(await mobile.locator('#info-body').getByText(/Open this site in Safari/).isVisible(),'Installation guidance explains Safari and Add to Home Screen');
@@ -60,8 +62,8 @@ try{
  for(const [field,value] of Object.entries({id:'M001',name:'Mobile Test Mother',age:'25',edd:today()}))await mobile.locator('#field-'+field).fill(value);
  await mobile.locator('#record-form button[type=submit]').click();
  await mobile.locator('#form-dialog').waitFor({state:'hidden'});
- check(await mobile.evaluate(()=>JSON.parse(localStorage.getItem('enay.workspace.v1')).data.mothers.length===1),'Online record entry works without offline support');
- await mobile.goto(base+'#workspace');
+ check((await privateCopy(mobile)).mothers.length===1,'Online record entry works without offline support');
+ await mobile.evaluate(()=>location.hash='workspace');
  await mobile.waitForFunction(()=>document.querySelector('#page-content').getAnimations().every(animation=>animation.playState!=='running'));
  check(await mobile.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Unsupported-browser guidance fits the phone screen');
  await mobile.screenshot({path:'test-output/web/mobile-browser-guidance.png',fullPage:true});

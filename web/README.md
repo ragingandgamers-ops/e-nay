@@ -1,72 +1,71 @@
 # E-Nay browser edition
 
-An actual responsive website with an installable Progressive Web App (PWA) workspace. Its users are barangay health workers and midwives; mothers and children are beneficiaries. The existing Java console and desktop applications remain separate and unchanged.
+Responsive web/mobile PWA for a single barangay clinic, with separate patient and staff accounts, Cloudflare D1 sharing, and encrypted account-specific offline copies. Java console and JavaFX applications remain separate. Real licensed photography only; see [ASSETS.md](ASSETS.md).
 
 ## Run locally
 
-From the repository root, with Python 3 installed:
+Use Node.js 24 or later from the repository root:
 
 ```sh
-python -m http.server 8765 --bind 127.0.0.1 --directory web/dist
+node web/server/dev-server.mjs
 ```
 
-Open `http://127.0.0.1:8765/`. Stop with Ctrl+C. There is no application build or runtime package installation. Use HTTP localhost for local testing, or HTTPS on a deployed site; opening `index.html` directly as a file does not provide service-worker offline support. A phone needs the deployed HTTPS URL; the computer's localhost URL cannot be used on a phone.
+Open http://127.0.0.1:8765/. This serves both the website and its account API. A static Python server or opening index.html directly cannot provide accounts or sharing. Local clinic state is stored in ignored data/local-web/clinic.sqlite; it is separate from production and Java data. No account is created by default. The database owner must approve staff access.
 
-## Desktop and mobile
+For automated tests only, start with --test. This uses an in-memory database and fictional test.staff, test.patient and other.patient accounts with the password in tests/session.mjs. These fixtures are never included in the production deployment and must not be used as real credentials.
 
-- The introduction has real licensed photographs, a warm editorial layout, and a clear entry to the workspace. See [photography sources](ASSETS.md).
-- The same website adapts to a computer, tablet, or phone. Phone navigation exposes all sections through a labelled menu and tables become readable record cards.
-- Android Chrome/Edge can install the PWA. iPhone/iPad users use Safari's Share > Add to Home Screen. Installation controls depend on browser support. This is a PWA, not an Android APK or an App Store application.
-- Connect once on each device. Wait for **Offline ready** before disconnecting. The service worker verifies the complete cached shell before reporting readiness. It caches all code, local photographs, icons, and the guides.
-- Profile creation, editing, search, care records, backup, and restore use local browser storage and do not need a server connection. External source links require internet and show a clear message when the browser is offline.
+## Accounts and privacy
 
-Homepage sections reveal as they enter view, photographs move subtly with native scrolling, and workspace entry uses a brief fade. These effects use browser APIs without animation libraries, respect reduced-motion preferences, and leave the homepage visible when animation scripts cannot run. Decorative flower marks are inline SVG, so iOS does not substitute a coloured emoji. Browsers without the offline API show Safari/Chrome installation guidance while retaining online record entry.
+Public registration always creates a patient account. Only a trusted database owner can approve a staff account; the public API cannot promote accounts. Staff manage clinical profiles, visits, vaccination dates, growth measurements, vaccine inventory, imports and clinic backups. Staff link verified patients/guardians to existing maternal or child profiles through Patient access. Patients can view only their linked records and general care guides. All private API calls check the current account role on the server. Changing a URL or hiding/showing controls does not grant access.
 
-## Working features
+Passwords are salted scrypt hashes (N=32768, r=8, p=3); plaintext passwords are not stored. API access requires both an HttpOnly Secure SameSite cookie and a separate per-tab proof held only in memory. The device cookie alone grants no access. Sessions expire after 12 hours. Sign-out clears the private screen and in-memory key/proof, and revokes the online session when reachable. Auth attempts are rate-limited. Mutations require the exact same origin.
 
-- Maternal and child profiles, case-insensitive ID uniqueness, exact three-digit IDs, preserved name capitalization, real date validation, contact and barangay fields, active/inactive status, search, and filters.
-- Checkups with symptoms, food/diet notes, blood-pressure transcription, and follow-up dates.
-- Staff-entered vaccination appointments and administered dates; due, overdue, completed, and upcoming labels. Inventory quantities are entered separately; administering a dose does not automatically deduct stock.
-- Child weight and length/height records, a dated weight chart with an accessible values table, staff assessment notes, and follow-up flags. Measurement dates must be within the child's first two years; historical data stays accessible.
-- Vaccine batch stock, expiry dates, configurable low-stock thresholds, and summary alerts.
-- Short cached care guides with linked WHO sources and a home-visit checklist. Guides are general information, not personalized treatment recommendations.
-- Complete JSON backup/restore and profile-only UTF-8 Java text import/export. A reviewed text import preserves matching browser-only profile fields and refuses to remove profiles referenced by care records.
+The first staff account is provisioned by the trusted Cloudflare owner after its holder registers and confirms the username. No default staff password, public role picker, or first-visitor takeover exists. There is currently no self-service password reset, email verification, MFA, or multi-clinic separation; account recovery requires a trusted owner workflow.
 
-## Data and recovery
+## Offline use and synchronization
 
-Data is saved under `enay.workspace.v1` in localStorage, separately for each origin, browser profile, and device. It is **not** automatically synchronized with other devices or the Java `data/` folder. It is not encrypted. Use fictional records for this school build on shared/unsecured devices; a clinical deployment needs an appropriate security and access-control design.
+Sign in online first on each device. Compatible browsers cache the public app shell and short guides. IndexedDB stores only an AES-GCM encrypted authorized snapshot, using a non-extractable key derived from the password with PBKDF2-SHA256 (600,000 iterations). The password and API proof are never persisted. Account metadata and a random salt/nonce are stored outside the ciphertext; the account ID, username and role are authenticated as additional data. A copied or modified role label cannot decrypt another role’s snapshot.
 
-Download a complete backup before clearing site data, changing the site URL/browser, or switching phones. Restoring a complete backup replaces the receiving workspace after explicit review. Empty/invalid text imports cannot blank saved data. Malformed rows are reported, valid rows are staged without null gaps, and replacing data requires a checkbox confirmation. Complete JSON backups are validated as a whole before restoration.
+Wait for both Offline ready and confirmation of an encrypted device copy. Unlock the same account with its password when offline. An incorrect online password never falls back to offline unlock. If storage APIs are unavailable, the session can operate online only; failed network saves retain the form. Messenger’s embedded browser may lack offline APIs: open the site in Safari/Chrome and install from there. This is a PWA, not an APK or App Store package.
 
-The application validates the full candidate state before a single storage write. Quota and permission errors preserve previous records and keep the form values. Unreadable stored data blocks new writes and blank backup exports; users can download the original bytes and explicitly restore a valid backup. A revision check rejects stale saves from another tab. Web Locks serialize same-origin writes where supported; use a single editing tab on browsers without Web Locks.
+Staff saves persist the encrypted device copy before acknowledging an offline change. Synchronization uses an operation ID and a server revision comparison. A stale device cannot overwrite newer clinic records: its pending copy remains available for a private backup and explicit review. IndexedDB transactions also compare the local generation to reject stale editing tabs. Sign in online after reopening an offline session to obtain a new memory-only proof. Use Sync / refresh to load accepted cloud changes. Updates are not pushed live to other devices.
 
-## Relation to the proposal
+Offline authorization reflects the last downloaded role and links. Revoking access stops future server reads/writes immediately, but cannot erase a previously downloaded offline copy. Offline staff edits after revocation remain local drafts that the server rejects. Account holders must protect their device and password. Downloaded JSON/text backups are unencrypted and need private storage. Cloudflare/the trusted database owner can access cloud records; this is not end-to-end encryption of the server database.
 
-The proposal establishes rural communities, health-worker workflows, offline operation, and single-device storage. This browser edition implements the manual record workflows above alongside the Java project; it is not a rewrite of its Java OOP coursework.
+Old enay.workspace.v1 localStorage records are preserved and never uploaded automatically. Staff may choose Data & backup > Review records from the previous app, inspect the result, then explicitly confirm import. A confirmed clinic import clears patient account links, requiring staff identity verification and linking again. Stale/rejected imports leave current links intact. Damaged or all-invalid sources cannot silently blank clinic records. Java imports remain profile-only; complete web backups include contacts, barangay and all care types.
 
-The following proposal goals still need separate clinical specification and implementation: an approved built-in immunization schedule, automated growth-standard/malnutrition screening, trimester/development guidance, and targeted intervention recommendations. The current app intentionally labels staff-entered schedules/assessments accurately and does not present an invented schedule, WHO curve, or diagnostic algorithm as complete. Notifications are on screen only; there is no SMS/email delivery or cloud synchronization.
+## Working clinical features and proposal gaps
+
+Implemented: validated maternal/child profiles; contact and barangay; search/filters; visit notes, symptoms, diet notes, blood pressure/follow-up; staff-entered vaccine dates and status labels; child measurements and a weight chart; manual assessment flags; stock batches/thresholds/expiry alerts; static sourced care guides; reviewed backups and Java text compatibility. Stock is entered separately and is not automatically deducted on a dose entry.
+
+The user approved shared Cloudflare storage as a change from the original single-device proposal. This release implements access and sharing, but it does not finish the remaining clinical proposal modules: built-in approved vaccine schedules, pregnancy/development timelines, automatic growth/nutrition screening, independent daily symptom/food logs, monthly reviews and rule-selected guidance. Manual entries/flags are not represented as those clinical algorithms. JavaFX is also not a Swing rewrite of the proposed Java design. No AI diagnosis or SMS/email system is included.
+
+## Deploy on Cloudflare Pages
+
+Production: https://e-nay-care.pages.dev/ . Direct Upload is independent of GitHub pushes.
+
+1. Create an empty D1 database and bind it as DB in the production Pages project.
+2. Use compatibility date 2026-10-18 and nodejs_compat.
+3. Run node web/server/build-worker.mjs. This deterministic dependency-free build emits dist/_worker.js from the maintained server/core sources.
+4. ZIP the contents of dist/ at the archive root, including _worker.js, and use Pages Direct Upload. Do not upload local databases, test fixtures, passwords or environment files.
+5. Verify /api/status returns ready:true and unauthenticated /api/workspace returns 401. The API initializes the empty schema with an atomic D1 batch; no production accounts are seeded.
+
+The service worker caches only the public shell, never private /api responses. Bump its version after frontend changes and keep its module list aligned. The canonical ./ entry avoids Cloudflare’s /index.html redirect-cache ERR_FAILED issue. Existing users can open /start#workspace while connected to update without deleting old records. An old worker may require a second normal reload after installation.
 
 ## Checks
 
-From `web/`, Node 18 or later:
+From the repository root, with the disposable --test server running for browser suites:
 
 ```sh
-node --test tests/core.test.mjs
+node --test web/tests/core.test.mjs web/tests/accounts.test.mjs
+cd web
 npm install
 npx playwright install chromium
-npm run test:browser
-npm run test:hosting
-npm run test:presentation
+cd ..
+node web/tests/browser.test.mjs
+node web/tests/presentation.test.mjs
+node web/tests/account-browser.test.mjs
+node web/tests/service-worker.test.mjs
 ```
 
-Start the local server on port 8765 before the browser test. `ENAY_URL` can select a different local test URL; tests must use a disposable browser profile with fictional records. `BROWSER_BIN` selects a compatible installed Chromium browser; `PLAYWRIGHT_MODULE` optionally supplies an existing Playwright package directory.
-
-The core suite covers normalization, dates, historical records, duplicates, malformed text rows, capacity, quota/permission failures, corruption recovery, backup validity, clinical links, and stale-tab saves. Browser tests exercise actual forms, reviewed imports, offline reload and record creation, recovery, four viewport widths, and mobile form layout. Screenshots go to ignored `test-output/web/` at repository level when run from the repository root.
-
-## Hosting and offline updates
-
-The public Cloudflare Pages deployment is https://e-nay-care.pages.dev/. It uses Direct Upload of the contents of `dist/`; GitHub pushes do not deploy it automatically. After an update, a browser stuck on the old `ERR_FAILED` page can open https://e-nay-care.pages.dev/start#workspace once while connected. This loads the updated worker without deleting its records.
-
-The shell caches the canonical `./` entry, rather than `/index.html`, because Cloudflare redirects the latter. Serving a cached redirected response for a navigation can produce `ERR_FAILED`. Run `npm run test:hosting` for the regression: it starts its own local server with Cloudflare-style redirects and verifies repeat visits, offline entry URLs, and recovery from the old worker while preserving localStorage.
-
-Static files are in `dist/`; `.openai/hosting.json` retains the associated private Site identity. Do not commit source credentials. Keep `sw.js`'s asset list in sync with the shell. Bump its cache version when changing a release so the next connected visit installs the complete new shell. Do not clear user localStorage on app upgrades. First-time opening, installation on a new device, and updating an old offline copy require connectivity.
+The suites cover core validation/recovery, API authorization and role revocation, linked-only patient reads, offline encrypted unlock, wrong passwords, sign-out, malformed imports, stale tabs/devices, idempotent saves, mobile layouts, reduced motion and hosting-cache recovery. Browser screenshots go to ignored test-output/web/. BROWSER_BIN, PLAYWRIGHT_MODULE and ENAY_URL may select local testing dependencies/URL. Tests use fictional records only; physical iPhone/Safari has not been tested.
