@@ -53,6 +53,7 @@ node --test tests/core.test.mjs
 npm install
 npx playwright install chromium
 npm run test:browser
+npm run test:hosting
 ```
 
 Start the local server on port 8765 before the browser test. `ENAY_URL` can select a different local test URL; tests must use a disposable browser profile with fictional records. `BROWSER_BIN` selects a compatible installed Chromium browser; `PLAYWRIGHT_MODULE` optionally supplies an existing Playwright package directory.
@@ -60,5 +61,9 @@ Start the local server on port 8765 before the browser test. `ENAY_URL` can sele
 The core suite covers normalization, dates, historical records, duplicates, malformed text rows, capacity, quota/permission failures, corruption recovery, backup validity, clinical links, and stale-tab saves. Browser tests exercise actual forms, reviewed imports, offline reload and record creation, recovery, four viewport widths, and mobile form layout. Screenshots go to ignored `test-output/web/` at repository level when run from the repository root.
 
 ## Hosting and offline updates
+
+The public Cloudflare Pages deployment is https://e-nay-care.pages.dev/. It uses Direct Upload of the contents of `dist/`; GitHub pushes do not deploy it automatically. After an update, a browser stuck on the old `ERR_FAILED` page can open https://e-nay-care.pages.dev/start#workspace once while connected. This loads the updated worker without deleting its records.
+
+The shell caches the canonical `./` entry, rather than `/index.html`, because Cloudflare redirects the latter. Serving a cached redirected response for a navigation can produce `ERR_FAILED`. Run `npm run test:hosting` for the regression: it starts its own local server with Cloudflare-style redirects and verifies repeat visits, offline entry URLs, and recovery from the old worker while preserving localStorage.
 
 Static files are in `dist/`; `.openai/hosting.json` retains the associated private Site identity. Do not commit source credentials. Keep `sw.js`'s asset list in sync with the shell. Bump its cache version when changing a release so the next connected visit installs the complete new shell. Do not clear user localStorage on app upgrades. First-time opening, installation on a new device, and updating an old offline copy require connectivity.

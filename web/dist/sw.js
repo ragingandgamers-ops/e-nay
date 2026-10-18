@@ -1,6 +1,8 @@
 /* One same-origin shell; no patient data is sent over the network. */
-const CACHE='enay-shell-v4';
-const FILES=['./','./index.html','./styles.css','./app.mjs','./core.mjs','./manifest.webmanifest','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./assets/mother-baby.webp','./assets/mother-baby-small.webp','./assets/mother-child.webp','./assets/mother-child-small.webp'];
+const CACHE='enay-shell-v5';
+// Pages redirects index.html to ./; a cached redirected response cannot be
+// returned for a navigation request. Cache and serve the canonical entry URL.
+const FILES=['./','./styles.css','./app.mjs','./core.mjs','./manifest.webmanifest','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./assets/mother-baby.webp','./assets/mother-baby-small.webp','./assets/mother-child.webp','./assets/mother-child-small.webp'];
 const urls=FILES.map(p=>new URL(p,self.location.href).href);
 self.addEventListener('install',event=>event.waitUntil((async()=>{
  const cache=await caches.open(CACHE);
@@ -24,6 +26,6 @@ self.addEventListener('fetch',event=>{
  if(!url.pathname.startsWith(base.pathname))return;
  // Open the cached entry immediately even on a weak, half-connected network.
  // Versioned service-worker installation updates the shell on connected visits.
- if(event.request.mode==='navigate'&&(url.pathname===base.pathname||url.pathname===new URL('./index.html',self.location.href).pathname))event.respondWith((async()=>await caches.match(new URL('./index.html',self.location.href).href)??fetch(event.request))());
+ if(event.request.mode==='navigate'&&['./','./index.html','./start'].some(path=>url.pathname===new URL(path,self.location.href).pathname))event.respondWith((async()=>await (await caches.open(CACHE)).match(base.href)??fetch(event.request))());
  else if(urls.includes(url.origin+url.pathname))event.respondWith((async()=>{const cached=await caches.match(event.request,{ignoreSearch:true});return cached??fetch(event.request);})());
 });

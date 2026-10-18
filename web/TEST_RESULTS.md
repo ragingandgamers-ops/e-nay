@@ -11,11 +11,14 @@ Verified 18 October 2026 on Windows and Node.js with Microsoft Edge 155 and Chro
 
 Commands from repository root:
 
+The Cloudflare hosting regression (`node web/tests/service-worker.test.mjs`) also passed on 18 October 2026. A local server reproduces Cloudflare's `/index.html` to `/` redirect. The legacy worker reproduces `net::ERR_FAILED`; the corrected worker passes repeat visits, HTML-alias and query-string visits, offline navigation, and recovery through `/start` without deleting saved localStorage. These checks run in disposable profiles and do not inspect the user's browser records.
+
 ```sh
 node --test web/tests/core.test.mjs
 # Start the server before the browser run:
 python -m http.server 8765 --bind 127.0.0.1 --directory web/dist
 node web/tests/browser.test.mjs
+node web/tests/service-worker.test.mjs
 ```
 
 The existing Java sources were not changed by the web work. Their prior recorded results remain in the repository-level TEST_RESULTS.txt. The web and Java workflows run separately on GitHub.

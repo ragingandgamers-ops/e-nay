@@ -39,6 +39,8 @@ jobs:
               raise SystemExit('The browser-test preview server did not become ready.')
           PY
           node web/tests/browser.test.mjs
+      - name: Cloudflare redirects and offline cache upgrades
+        run: node web/tests/service-worker.test.mjs
       - name: Keep UI evidence
         if: always()
         uses: actions/upload-artifact@v4
