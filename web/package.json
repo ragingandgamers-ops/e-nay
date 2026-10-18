@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "description": "A buildless, offline-capable maternal and child care workspace.",
-  "scripts": {"test": "node --test tests/core.test.mjs", "test:browser": "node tests/browser.test.mjs", "test:hosting": "node tests/service-worker.test.mjs"},
+  "scripts": {"test": "node --test tests/core.test.mjs", "test:browser": "node tests/browser.test.mjs", "test:hosting": "node tests/service-worker.test.mjs", "test:presentation": "node tests/presentation.test.mjs"},
   "devDependencies": {"playwright": "1.62.1"}
 }

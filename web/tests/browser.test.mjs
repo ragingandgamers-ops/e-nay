@@ -5,7 +5,7 @@ import {today} from '../dist/core.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE||'playwright');
 const base=process.env.ENAY_URL||'http://127.0.0.1:8765/';
 const browser=await chromium.launch({headless:true,...(process.env.BROWSER_BIN?{executablePath:process.env.BROWSER_BIN}:{})});
-const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true});
+const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true,reducedMotion:'reduce'});
 // Some browsers reject a new registration check offline even with an existing
 // controlling worker. Exercise that path as part of every offline reload.
 await context.addInitScript(()=>{const register=ServiceWorkerContainer.prototype.register;ServiceWorkerContainer.prototype.register=function(...args){return navigator.onLine?register.apply(this,args):Promise.reject(new Error('Offline registration check unavailable'));};});

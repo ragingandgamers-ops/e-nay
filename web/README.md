@@ -20,6 +20,8 @@ Open `http://127.0.0.1:8765/`. Stop with Ctrl+C. There is no application build o
 - Connect once on each device. Wait for **Offline ready** before disconnecting. The service worker verifies the complete cached shell before reporting readiness. It caches all code, local photographs, icons, and the guides.
 - Profile creation, editing, search, care records, backup, and restore use local browser storage and do not need a server connection. External source links require internet and show a clear message when the browser is offline.
 
+Homepage sections reveal as they enter view, photographs move subtly with native scrolling, and workspace entry uses a brief fade. These effects use browser APIs without animation libraries, respect reduced-motion preferences, and leave the homepage visible when animation scripts cannot run. Decorative flower marks are inline SVG, so iOS does not substitute a coloured emoji. Browsers without the offline API show Safari/Chrome installation guidance while retaining online record entry.
+
 ## Working features
 
 - Maternal and child profiles, case-insensitive ID uniqueness, exact three-digit IDs, preserved name capitalization, real date validation, contact and barangay fields, active/inactive status, search, and filters.
@@ -54,6 +56,7 @@ npm install
 npx playwright install chromium
 npm run test:browser
 npm run test:hosting
+npm run test:presentation
 ```
 
 Start the local server on port 8765 before the browser test. `ENAY_URL` can select a different local test URL; tests must use a disposable browser profile with fictional records. `BROWSER_BIN` selects a compatible installed Chromium browser; `PLAYWRIGHT_MODULE` optionally supplies an existing Playwright package directory.

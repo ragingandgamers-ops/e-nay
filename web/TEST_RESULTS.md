@@ -24,3 +24,5 @@ node web/tests/service-worker.test.mjs
 The existing Java sources were not changed by the web work. Their prior recorded results remain in the repository-level TEST_RESULTS.txt. The web and Java workflows run separately on GitHub.
 
 Scope limits: no clinical diagnostic validation has been performed. Built-in immunization schedules, automated WHO growth-standard interpretation, native phone packaging, encrypted storage, and device synchronization are not implemented. See README.md for the supported manual workflows and deployment requirements.
+
+The presentation suite adds 16 passing assertions for scroll reveals, photo movement, workspace entry, initial and changed reduced-motion preferences, an embedded browser without the offline API, Safari installation guidance, and record entry in that browser. Functional browser checks use reduced motion for stable screenshots; the presentation suite separately exercises motion. Phone checks use Chromium viewport/touch emulation, not a physical iPhone or Safari. Decorative SVG and the mobile help notice were visually inspected.

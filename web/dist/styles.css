@@ -8,3 +8,15 @@
 @media(max-width:600px){.mobile-page-label{padding-inline:16px}.page-heading p:not(.eyebrow),.panel p,.data-note,.notice{font-size:12px}.page-heading .button{font-size:11px}.toolbar input,.toolbar select{font-size:13px}.field label{font-size:12px}.record-count{font-size:11px}td{font-size:13px}td:before{font-size:10px}td:first-child{font-size:15px}.badge{font-size:10px}.guide-grid p,.guide-grid li{font-size:14px}.hero-intro,.section-heading>p{font-size:14px}.story-row p,.faq-items details p{font-size:13px}.anywhere-grid>div>p:not(.eyebrow){font-size:14px}.offline-steps p{font-size:13px}}
 @media(max-width:355px){h1{font-size:51px}.hero-copy .eyebrow{font-size:6.5px}.hero-actions{gap:12px}.hero-actions .button{font-size:10px;padding-inline:13px}.site-header .brand small{font-size:5.5px}.nav-button{padding-inline:9px;font-size:9px}.hero-photo{height:350px}.connection-status>span{max-width:137px}.page-heading .button{font-size:10px;padding-inline:8px}.field.wide-mobile{grid-column:1/-1}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
+
+/* Vector marks retain their shape and brand colour on iOS and desktop. */
+.flower-mark{display:inline-block;width:1em;height:1em;vertical-align:-.1em;flex-shrink:0}.welcome-flower{flex-shrink:0}
+.offline-guidance{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:18px 35px;background:#f0e9dc;border-bottom:1px solid var(--line)}.offline-guidance strong{font-size:14px}.offline-guidance p{font-size:13px;line-height:1.7;max-width:760px;margin:5px 0 0;color:#59675e}.offline-guidance .button{flex-shrink:0;font-size:12px;min-height:44px}
+@media(max-width:600px){.offline-guidance{display:block;padding:18px 16px}.offline-guidance .button{margin-top:13px}.offline-guidance p{font-size:13px}}
+
+/* Gentle entrance motion and clipped photo drift; no scroll interception. */
+.motion-ready [data-reveal]{opacity:0;transform:translateY(22px);transition:opacity .65s cubic-bezier(.2,.65,.3,1),transform .65s cubic-bezier(.2,.65,.3,1);transition-delay:var(--reveal-delay,0ms)}.motion-ready [data-reveal].is-revealed{opacity:1;transform:translateY(0)}
+.hero-art>picture{display:block;overflow:hidden;border-radius:240px 240px 15px 15px}.care-story picture{display:block;overflow:hidden;border-radius:7px 7px 150px 7px}.hero-art>picture>.hero-photo,.care-story picture>img{border-radius:0}.motion-ready .hero-photo,.motion-ready .care-story img{transform:translate3d(0,var(--photo-drift,0px),0) scale(1.06);will-change:transform}
+.button:active{transform:translateY(0) scale(.985)}
+@media(max-width:600px){.hero-art>picture{border-radius:190px 190px 10px 10px}.care-story picture{border-radius:5px 5px 100px 5px}}
+@media(prefers-reduced-motion:reduce){.motion-ready [data-reveal]{opacity:1;transform:none;transition:none}.motion-ready .hero-photo,.motion-ready .care-story img,.button:hover,.button:active{transform:none}}
