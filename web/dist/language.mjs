@@ -26,7 +26,7 @@ export function t(key,params={}){
   return String(item);
  });
 }
-export function label(key,params={}){return `<!--${PREFIX}${encode({key:keyOf(key),params})}-->${esc(t(key,params))}`;}
+export function label(key,params={}){return `<!--${PREFIX}${encode({key:keyOf(key),params})}-->${esc(t(key,params))}<!--enay-ui-end-->`;}
 export function setText(element,key,params={}){element.dataset.uiText=JSON.stringify({key:keyOf(key),params});element.textContent=t(key,params);}
 const decoder=document.createElement('textarea');
 function decode(text){decoder.innerHTML=text;return decoder.value;}
@@ -60,7 +60,7 @@ export function applyTranslations(root=document){
  const walk=document.createTreeWalker(root,NodeFilter.SHOW_COMMENT);
  while(walk.nextNode()){
   const node=walk.currentNode;if(!node.data.startsWith(PREFIX)||node.nextSibling?.nodeType!==Node.TEXT_NODE)continue;
-  const {key,params}=JSON.parse(decodeURIComponent(node.data.slice(PREFIX.length)));node.nextSibling.nodeValue=t(key,params);
+  const {key,params,before='',after=''}=JSON.parse(decodeURIComponent(node.data.slice(PREFIX.length)));node.nextSibling.nodeValue=before+t(key,params)+after;
  }
  for(const element of root.querySelectorAll('[data-ui-text]')){
   // A loading message may have been replaced by an interactive import preview.
@@ -76,7 +76,7 @@ export function initLanguage(){
  // Capture the original static document once, before any account data is shown.
  const walk=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),nodes=[];
  while(walk.nextNode()){const node=walk.currentNode;if(node.nodeValue.trim()&&!node.parentElement.closest('script,style,noscript,[data-no-translate]'))nodes.push(node);}
- for(const node of nodes){const leading=node.nodeValue.match(/^\s*/)[0],trailing=node.nodeValue.match(/\s*$/)[0],key=keyOf(node.nodeValue);node.before(document.createComment(PREFIX+encode({key,params:{}})));node.nodeValue=leading+t(key)+trailing;}
+ for(const node of nodes){const leading=node.nodeValue.match(/^\s*/)[0],trailing=node.nodeValue.match(/\s*$/)[0],key=keyOf(node.nodeValue);node.before(document.createComment(PREFIX+encode({key,params:{},before:leading,after:trailing})));node.after(document.createComment('enay-ui-end'));node.nodeValue=leading+t(key)+trailing;}
  for(const element of document.body.querySelectorAll('[aria-label],[title],[placeholder],[alt],[data-label]')){
   const attributes={};for(const name of ['aria-label','title','placeholder','alt','data-label'])if(element.getAttribute(name))attributes[name]=element.getAttribute(name);
   element.dataset.uiAttrs=JSON.stringify(attributes);
