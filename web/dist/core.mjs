@@ -1,7 +1,8 @@
 // The browser edition has its own local store. Java text imports/exports are
 // deliberately limited to the profile fields supported by the Java models.
 export const KEY = 'enay.workspace.v1';
-export const TYPES = ['mothers', 'children', 'visits', 'vaccines', 'growth', 'inventory'];
+export const TYPES = ['mothers', 'children', 'visits', 'vaccines', 'growth', 'inventory', 'guides'];
+export const GUIDE_CATEGORIES = ['Maternal care','Child care','Vaccination','Clinic information','Other'];
 export class ValidationError extends Error {
   constructor(field, message) { super(message); this.field = field; }
 }
@@ -39,6 +40,14 @@ function name(value, field) {
     else fail(field, 'Use letters, spaces, hyphens, apostrophes or periods.');
   }
   if (!letter) fail(field, 'Enter a name containing letters.');
+  return s;
+}
+function article(value,field,required=true,max=12000){
+  if(typeof value!=='string'){if(!required&&value==null)return '';fail(field,'Enter a text value.');}
+  const s=value.normalize('NFC').replace(/\r\n?/g,'\n').trim();
+  if(required&&!s)fail(field,'This field is required.');
+  if(s.length>max)fail(field,`Use ${max} characters or fewer.`);
+  if(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(s))fail(field,'Remove unsupported control characters.');
   return s;
 }
 function choice(value, field, values) {
@@ -90,7 +99,7 @@ export function normalize(type, raw, data, {original = null, historical = false,
   } else {
     if (!TYPES.includes(type)) fail('', 'Unknown record type.');
     r.id = original?.id ?? (historical || preserveId ? text(raw.id,'id') : uid());
-    if (type !== 'inventory') {
+    if (!['inventory','guides'].includes(type)) {
       r.patient = text(raw.patient,'patient');
       const p = patientById(data,r.patient);
       if (!p) fail('patient','Choose an existing patient profile first.');
@@ -135,6 +144,20 @@ export function normalize(type, raw, data, {original = null, historical = false,
       r.height = number(raw.height,'height',10,200);
       r.assessment = choice(raw.assessment,'assessment',['Not assessed','Reviewed','Follow-up needed']);
       r.notes = text(raw.notes,'notes',false,2000);
+    } else if(type==='guides') {
+      r.title=text(raw.title,'title',true,160);
+      r.category=choice(raw.category,'category',GUIDE_CATEGORIES);
+      r.summary=text(raw.summary,'summary',false,320);
+      r.content=article(raw.content,'content');
+      r.titleFil=text(raw.titleFil,'titleFil',false,160);
+      r.summaryFil=text(raw.summaryFil,'summaryFil',false,320);
+      r.contentFil=article(raw.contentFil,'contentFil',false);
+      if(Boolean(r.titleFil)!==Boolean(r.contentFil))fail(r.titleFil?'contentFil':'titleFil','Add both a Filipino title and article, or leave both empty.');
+      r.status=choice(raw.status,'status',['Draft','Published','Archived']);
+      r.sourceName=text(raw.sourceName,'sourceName',false,160);
+      r.resourceUrl=article(raw.resourceUrl,'resourceUrl',false,2048);
+      if(r.resourceUrl){let parsed;try{parsed=new URL(r.resourceUrl);}catch{fail('resourceUrl','Use a complete HTTPS link to the article, PDF or material.');}if(parsed.protocol!=='https:'||parsed.username||parsed.password||/\s/u.test(r.resourceUrl))fail('resourceUrl','Use a complete HTTPS link to the article, PDF or material.');r.resourceUrl=parsed.href;}
+      if(raw.updatedOn)r.updatedOn=date(raw.updatedOn,'updatedOn');
     } else {
       r.vaccine = text(raw.vaccine,'vaccine');
       r.batch = text(raw.batch,'batch');
@@ -153,7 +176,7 @@ export function normalize(type, raw, data, {original = null, historical = false,
   }
   const others = data[type].filter(x=>x.id!==original?.id);
   if (others.some(x=>x.id.toUpperCase() === r.id.toUpperCase())) fail('id','This ID already exists. Open the existing profile to edit it.');
-  if (!original && data[type].length >= (type==='mothers'||type==='children'?100:5000)) fail('', 'The record limit has been reached. Export a backup before changing records.');
+  if (!original && data[type].length >= (type==='mothers'||type==='children'?100:type==='guides'?200:5000)) fail('', 'The record limit has been reached. Export a backup before changing records.');
   if(raw.updatedByRole!==undefined)r.updatedByRole=choice(raw.updatedByRole,'updatedByRole',['patient','staff']);
   return r;
 }
@@ -161,8 +184,10 @@ export function validateData(raw, now = today()) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('', 'Invalid backup data.');
   const data = emptyData();
   for (const type of TYPES) {
-    if (!Array.isArray(raw[type])) fail('', `The backup is missing ${type} records.`);
-    for (const r of raw[type]) data[type].push(normalize(type,r,data,{historical:true,now}));
+   // Earlier backups and encrypted device copies predate clinic-authored guides.
+   const records=type==='guides'&&raw[type]===undefined?[]:raw[type];
+   if (!Array.isArray(records)) fail('', `The backup is missing ${type} records.`);
+   for (const r of records) data[type].push(normalize(type,r,data,{historical:true,now}));
   }
   return data;
 }

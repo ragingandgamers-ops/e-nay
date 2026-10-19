@@ -47,6 +47,7 @@ jobs:
           node web/tests/account-browser.test.mjs
           node web/tests/family-workflow.test.mjs
           node web/tests/vaccination-request-browser.test.mjs
+          node web/tests/care-guides-browser.test.mjs
           node web/tests/session-browser.test.mjs
           node web/tests/language-browser.test.mjs
       - name: Cloudflare redirects and offline cache upgrades

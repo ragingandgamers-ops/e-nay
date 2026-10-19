@@ -70,6 +70,7 @@ export function applyRecordOperations(data,operations,{role,allowedIds=[],alloca
  for(const operation of operations){
   if(!operation||!TYPES.includes(operation.type)||!operation.record||typeof operation.record!=='object'||(operation.originalId!==null&&typeof operation.originalId!=='string'))throw new ValidationError('','Invalid record operation.');
   const type=operation.type,profile=['mothers','children'].includes(type),raw=structuredClone(operation.record);
+  if(role==='patient'&&type==='guides')throw recordError(403,'Only clinic staff can create, edit or publish care guides.');
   if(role==='patient'&&type==='inventory')throw deny();
   const originalId=operation.originalId===null?null:(idMap[operation.originalId]??operation.originalId);
   const previous=originalId?next[type].find(record=>record.id===originalId):null;
@@ -90,6 +91,7 @@ export function applyRecordOperations(data,operations,{role,allowedIds=[],alloca
   // Provenance and stock allocations are assigned here, never trusted from a
   // patient's request. Patient requests do not reserve, refund or consume physical stock.
   raw.updatedByRole=role;
+  if(type==='guides')raw.updatedOn=now;
   if(type==='vaccines')prepareVaccination(next,previous,raw,role);
   const record=normalize(type,raw,next,{original:previous,preserveId:true,now});
   if(type==='vaccines'&&role==='staff')applyStock(next,previous,record,raw,now);

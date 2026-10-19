@@ -42,6 +42,14 @@ Offline authorization reflects the last downloaded role and links. Revoking acce
 
 Old enay.workspace.v1 localStorage records are preserved and never uploaded automatically. Staff may choose Data & backup > Review records from the previous app, inspect the result, then explicitly confirm import. A confirmed clinic import clears patient account links, requiring staff identity verification and linking again. Stale/rejected imports leave current links intact. Damaged or all-invalid sources cannot silently blank clinic records. Java imports remain profile-only; complete web backups include contacts, barangay and all care types.
 
+## Clinic-authored care guides
+
+Care guides now has a separate **From your clinic** library above the bundled general guides. Staff can write an article, add a topic and short description, optionally supply a Filipino title/article/description, identify its clinic/source, and link an HTTPS article, PDF or video. Preview preserves unsaved editor values and can display either supplied language. Article text is plain text with paragraphs; HTML is escaped. Materials are links, not file uploads, and external files are not downloaded for offline use.
+
+New articles start as **Draft**. Staff explicitly publish an article to share it with every patient account in this clinic; a patient does not need a linked family profile to read it. Only staff can create, edit, publish or archive articles, enforced in record operations on both the device and API. Drafts and archived guides are excluded from patient API responses and encrypted patient copies. Archiving preserves the staff record and removes it from connected patients after their next successful sync. A disconnected device retains its previously downloaded version until it reconnects. This remains a single-clinic deployment, not separate tenants for multiple barangays.
+
+Article text joins the encrypted account copy, complete JSON backups and conflict-safe record synchronization. Offline staff edits/publication are marked pending until accepted by the clinic API. Patients can read downloaded article text offline; external materials need internet. Switching language uses the supplied Filipino article, or visibly falls back to the original English version. Entered article text and source names are not machine-translated. Old backups/device copies without the optional guides collection still load; old whole-snapshot clients and pre-guide imports preserve the current clinic articles.
+
 ## Working clinical features and proposal gaps
 
 Implemented: validated maternal/child profiles; contact and barangay; search/filters; visit notes, symptoms, diet notes, blood pressure/follow-up; patient vaccination requests, staff approval/reservations and administered-dose status labels; child measurements and a weight chart; manual assessment flags; stock batches/thresholds/expiry alerts; static sourced care guides; reviewed backups and Java text compatibility. Mothers’ records include checkups and notes; children’s records include growth, notes and vaccinations. Each profile opens its own history. The compact mobile header opens a profile menu for account details, sync/refresh, installation, language and sign-out.
@@ -81,6 +89,7 @@ node web/tests/presentation.test.mjs
 node web/tests/account-browser.test.mjs
 node web/tests/family-workflow.test.mjs
 node web/tests/vaccination-request-browser.test.mjs
+node web/tests/care-guides-browser.test.mjs
 node web/tests/session-browser.test.mjs
 node web/tests/language-browser.test.mjs
 node web/tests/service-worker.test.mjs

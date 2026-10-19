@@ -73,6 +73,27 @@ test('cross-origin mutations, expired sessions and missing database configuratio
 });
 
 const newOp=(type,record)=>({type,record,originalId:null});
+test('only staff publish clinic guides; every patient sees published articles without private drafts',async()=>{
+ const f=await fixture();try{
+  const staff=await f.login('worker.one'),patient=await f.login('patient.one'),other=await f.login('patient.two');
+  const record={id:crypto.randomUUID(),title:'Local clinic hours',category:'Clinic information',content:'Fictional local instructions.\n\nBring your clinic card.',status:'Draft'};
+  assert.equal((await records(f,patient,[newOp('guides',record)])).status,403);
+  const draft=await records(f,staff,[newOp('guides',record)]);assert.equal(draft.status,200);assert.equal(draft.value.data.guides[0].updatedOn,today());
+  assert.deepEqual((await f.call('/api/workspace',{session:patient})).value.data.guides,[]);
+  const published=await records(f,staff,[editOp('guides',draft.value.data.guides[0],{status:'Published'})]);assert.equal(published.status,200);
+  for(const session of [patient,other]){const shared=(await f.call('/api/workspace',{session})).value.data;assert.equal(shared.guides[0].title,record.title);assert.equal(shared.mothers.length,0);assert.equal((await records(f,session,[editOp('guides',shared.guides[0],{content:'Forged clinic advice'})])).status,403);}
+  const archived=await records(f,staff,[editOp('guides',published.value.data.guides[0],{status:'Archived'})]);assert.equal(archived.status,200);assert.equal((await f.call('/api/workspace',{session:patient})).value.data.guides.length,0);assert.equal(archived.value.data.guides.length,1);
+ }finally{f.db.close();}
+});
+test('old snapshot clients preserve clinic articles and stale guide edits cannot overwrite newer staff changes',async()=>{
+ const f=await fixture();try{
+  const staff=await f.login('worker.one'),record={id:crypto.randomUUID(),title:'Clinic update',category:'Clinic information',content:'Original instructions',status:'Published'};
+  const created=await records(f,staff,[newOp('guides',record)]);assert.equal(created.status,200);const original=created.value.data.guides[0];
+  const changed=await records(f,staff,[editOp('guides',original,{content:'Updated instructions'})]);assert.equal(changed.status,200);
+  assert.equal((await records(f,staff,[editOp('guides',original,{content:'Stale instructions'})])).status,409);
+  const legacy=emptyData();delete legacy.guides;const saved=await f.call('/api/workspace',{method:'PUT',session:staff,body:{baseRevision:changed.value.revision,operationId:crypto.randomUUID(),data:legacy,resetPatientLinks:true}});assert.equal(saved.status,200);assert.equal((await f.call('/api/workspace',{session:staff})).value.data.guides[0].content,'Updated instructions');
+ }finally{f.db.close();}
+});
 const editOp=(type,before,changes)=>({type,record:{...before,...changes},originalId:before.id,before});
 const mother=(id,name='Patient Mother')=>({id,name,age:29,edd:today(),status:'Active'});
 async function records(f,session,operations,operationId=crypto.randomUUID()){return f.call('/api/records',{method:'POST',session,body:{operationId,operations}});}

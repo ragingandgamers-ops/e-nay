@@ -112,7 +112,7 @@ export class AccountStore {
  }
  serial(action){const next=this.queue.then(()=>{if(this.closed)throw new Error('Sign in again before continuing.');return action();});this.queue=next.catch(()=>{});return next;}
  async save(type,raw,originalId=null,{before}={}){return this.serial(async()=>{
-  if(type==='inventory')this.requireStaff();
+   if(['inventory','guides'].includes(type))this.requireStaff();
   if(!Object.hasOwn(this.data,type))throw new Error('Invalid record type.');
   const original=originalId?this.data[type].find(r=>r.id===originalId):null;if(originalId&&!original)throw new Error('This record no longer exists. Reload the workspace.');
   const input={...raw};if(!originalId&&!input.id)input.id=['mothers','children'].includes(type)?nextProfileId(this.data,type):crypto.randomUUID();

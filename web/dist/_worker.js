@@ -2,7 +2,8 @@
 // The browser edition has its own local store. Java text imports/exports are
 // deliberately limited to the profile fields supported by the Java models.
 const KEY = 'enay.workspace.v1';
-const TYPES = ['mothers', 'children', 'visits', 'vaccines', 'growth', 'inventory'];
+const TYPES = ['mothers', 'children', 'visits', 'vaccines', 'growth', 'inventory', 'guides'];
+const GUIDE_CATEGORIES = ['Maternal care','Child care','Vaccination','Clinic information','Other'];
 class ValidationError extends Error {
   constructor(field, message) { super(message); this.field = field; }
 }
@@ -40,6 +41,14 @@ function name(value, field) {
     else fail(field, 'Use letters, spaces, hyphens, apostrophes or periods.');
   }
   if (!letter) fail(field, 'Enter a name containing letters.');
+  return s;
+}
+function article(value,field,required=true,max=12000){
+  if(typeof value!=='string'){if(!required&&value==null)return '';fail(field,'Enter a text value.');}
+  const s=value.normalize('NFC').replace(/\r\n?/g,'\n').trim();
+  if(required&&!s)fail(field,'This field is required.');
+  if(s.length>max)fail(field,`Use ${max} characters or fewer.`);
+  if(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(s))fail(field,'Remove unsupported control characters.');
   return s;
 }
 function choice(value, field, values) {
@@ -91,7 +100,7 @@ function normalize(type, raw, data, {original = null, historical = false, preser
   } else {
     if (!TYPES.includes(type)) fail('', 'Unknown record type.');
     r.id = original?.id ?? (historical || preserveId ? text(raw.id,'id') : uid());
-    if (type !== 'inventory') {
+    if (!['inventory','guides'].includes(type)) {
       r.patient = text(raw.patient,'patient');
       const p = patientById(data,r.patient);
       if (!p) fail('patient','Choose an existing patient profile first.');
@@ -136,6 +145,20 @@ function normalize(type, raw, data, {original = null, historical = false, preser
       r.height = number(raw.height,'height',10,200);
       r.assessment = choice(raw.assessment,'assessment',['Not assessed','Reviewed','Follow-up needed']);
       r.notes = text(raw.notes,'notes',false,2000);
+    } else if(type==='guides') {
+      r.title=text(raw.title,'title',true,160);
+      r.category=choice(raw.category,'category',GUIDE_CATEGORIES);
+      r.summary=text(raw.summary,'summary',false,320);
+      r.content=article(raw.content,'content');
+      r.titleFil=text(raw.titleFil,'titleFil',false,160);
+      r.summaryFil=text(raw.summaryFil,'summaryFil',false,320);
+      r.contentFil=article(raw.contentFil,'contentFil',false);
+      if(Boolean(r.titleFil)!==Boolean(r.contentFil))fail(r.titleFil?'contentFil':'titleFil','Add both a Filipino title and article, or leave both empty.');
+      r.status=choice(raw.status,'status',['Draft','Published','Archived']);
+      r.sourceName=text(raw.sourceName,'sourceName',false,160);
+      r.resourceUrl=article(raw.resourceUrl,'resourceUrl',false,2048);
+      if(r.resourceUrl){let parsed;try{parsed=new URL(r.resourceUrl);}catch{fail('resourceUrl','Use a complete HTTPS link to the article, PDF or material.');}if(parsed.protocol!=='https:'||parsed.username||parsed.password||/\s/u.test(r.resourceUrl))fail('resourceUrl','Use a complete HTTPS link to the article, PDF or material.');r.resourceUrl=parsed.href;}
+      if(raw.updatedOn)r.updatedOn=date(raw.updatedOn,'updatedOn');
     } else {
       r.vaccine = text(raw.vaccine,'vaccine');
       r.batch = text(raw.batch,'batch');
@@ -154,7 +177,7 @@ function normalize(type, raw, data, {original = null, historical = false, preser
   }
   const others = data[type].filter(x=>x.id!==original?.id);
   if (others.some(x=>x.id.toUpperCase() === r.id.toUpperCase())) fail('id','This ID already exists. Open the existing profile to edit it.');
-  if (!original && data[type].length >= (type==='mothers'||type==='children'?100:5000)) fail('', 'The record limit has been reached. Export a backup before changing records.');
+  if (!original && data[type].length >= (type==='mothers'||type==='children'?100:type==='guides'?200:5000)) fail('', 'The record limit has been reached. Export a backup before changing records.');
   if(raw.updatedByRole!==undefined)r.updatedByRole=choice(raw.updatedByRole,'updatedByRole',['patient','staff']);
   return r;
 }
@@ -162,8 +185,10 @@ function validateData(raw, now = today()) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('', 'Invalid backup data.');
   const data = emptyData();
   for (const type of TYPES) {
-    if (!Array.isArray(raw[type])) fail('', `The backup is missing ${type} records.`);
-    for (const r of raw[type]) data[type].push(normalize(type,r,data,{historical:true,now}));
+   // Earlier backups and encrypted device copies predate clinic-authored guides.
+   const records=type==='guides'&&raw[type]===undefined?[]:raw[type];
+   if (!Array.isArray(records)) fail('', `The backup is missing ${type} records.`);
+   for (const r of records) data[type].push(normalize(type,r,data,{historical:true,now}));
   }
   return data;
 }
@@ -307,6 +332,7 @@ function applyRecordOperations(data,operations,{role,allowedIds=[],allocatePatie
  for(const operation of operations){
   if(!operation||!TYPES.includes(operation.type)||!operation.record||typeof operation.record!=='object'||(operation.originalId!==null&&typeof operation.originalId!=='string'))throw new ValidationError('','Invalid record operation.');
   const type=operation.type,profile=['mothers','children'].includes(type),raw=structuredClone(operation.record);
+  if(role==='patient'&&type==='guides')throw recordError(403,'Only clinic staff can create, edit or publish care guides.');
   if(role==='patient'&&type==='inventory')throw deny();
   const originalId=operation.originalId===null?null:(idMap[operation.originalId]??operation.originalId);
   const previous=originalId?next[type].find(record=>record.id===originalId):null;
@@ -327,6 +353,7 @@ function applyRecordOperations(data,operations,{role,allowedIds=[],allocatePatie
   // Provenance and stock allocations are assigned here, never trusted from a
   // patient's request. Patient requests do not reserve, refund or consume physical stock.
   raw.updatedByRole=role;
+  if(type==='guides')raw.updatedOn=now;
   if(type==='vaccines')prepareVaccination(next,previous,raw,role);
   const record=normalize(type,raw,next,{original:previous,preserveId:true,now});
   if(type==='vaccines'&&role==='staff')applyStock(next,previous,record,raw,now);
@@ -441,6 +468,7 @@ async function workspaceFor(db,account){
  filtered.mothers=data.mothers.filter(record=>allowed.has(record.id));
  filtered.children=data.children.filter(record=>allowed.has(record.id));
  for(const type of ['visits','vaccines','growth'])filtered[type]=data[type].filter(record=>allowed.has(record.patient));
+  filtered.guides=data.guides.filter(guide=>guide.status==='Published');
  return {revision:row.revision,data:filtered,catalog,savedAt:row.updated_at};
 }
 async function saveWorkspace(db,account,input){
@@ -449,6 +477,8 @@ async function saveWorkspace(db,account,input){
  const existing=await db.prepare('SELECT * FROM sync_operations WHERE id=?').bind(input.operationId).first();
  if(existing){if(existing.account_id!==account.id)throw new ApiError(409,'This synchronization identifier is already in use.');return {revision:existing.revision};}
  let data;try{data=validateData(input.data);}catch(error){throw new ApiError(400,error.message);}
+  // Old clients and pre-guide backups must not erase current clinic articles.
+  if(input.data.guides===undefined)data.guides=validateData(JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body)).guides;
  // Older clients send whole snapshots without newer provenance/stock fields.
  // Preserve those fields on ordinary saves; reviewed replacements remain explicit.
  if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse','approvalStatus','preferredDate','requestNotes','reviewNotes'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];if(old?.stockUse?.kind&&record.stockUse&&record.stockUse.kind===undefined)record.stockUse.kind=old.stockUse.kind;}}
@@ -502,7 +532,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'vaccination-requests-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'clinic-guides-v1'});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
   if(raw.role&&raw.role!=='patient')throw new ApiError(403,'Staff access is assigned by the clinic; it cannot be selected during registration.');
