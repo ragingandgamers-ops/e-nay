@@ -1,5 +1,5 @@
 /* Public app shell only. Private API responses are never cached here. */
-const CACHE='enay-shell-v9';
+const CACHE='enay-shell-v10';
 // Pages redirects index.html to ./; a cached redirected response cannot be
 // returned for a navigation request. Cache and serve the canonical entry URL.
 const FILES=['./','./tokens.css','./styles.css','./design-system.css','./icons.mjs','./assets/plus-jakarta-sans-variable.ttf','./app.mjs','./accounts.mjs','./auth-ui.mjs','./core.mjs','./motion.mjs','./manifest.webmanifest','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./assets/mother-baby.webp','./assets/mother-baby-small.webp','./assets/mother-child.webp','./assets/mother-child-small.webp'];

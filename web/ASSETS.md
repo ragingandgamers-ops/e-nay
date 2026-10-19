@@ -18,3 +18,7 @@ No third-party web font, icon library, analytics script, image CDN, or runtime J
 Design direction adapted from [asklepios UI Kit](https://www.figma.com/community/file/1334783556016489959/asklepios-ui-kit-ai-healthcare-wellness-app) by strangehelix.bio, using the Hygieia Red palette provided by the user. The public community page lists CC BY 4.0. See DESIGN_SYSTEM.md for implementation details.
 
 Plus Jakarta Sans by Tokotype is distributed from the official Google Fonts source under SIL OFL 1.1. The local font and complete license are included in dist/assets/. PWA icons and interface outline icons are code-native SVG; existing photography remains unchanged.
+
+## Social link preview
+
+assets/e-nay-social-red-v1.jpg is a 1200×630 card rendered from code-native HTML, E-Nay branding, local Plus Jakarta Sans and the existing Bethany Beck/Unsplash mother-and-baby photo credited above. No generated photography is used. Rebuild with node scripts/build-social-card.mjs from web/ after installing the existing Playwright development dependency. Open Graph and Twitter metadata in index.html reference this separate card. Messaging platforms may retain previously cached or already-sent previews.
