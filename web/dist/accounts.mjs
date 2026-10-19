@@ -1,4 +1,5 @@
 import {emptyData,validateData,normalize} from './core.mjs';
+import {deriveVaultKey as keyFor,saveTabSession,readTabSession,forgetTabSession} from './tab-session.mjs';
 
 export class ApiError extends Error { constructor(message,status=0){super(message);this.status=status;} }
 export async function api(path,{method='GET',body,proof,signal}={}){
@@ -23,12 +24,12 @@ async function replace(row,expected){
   tx.oncomplete=resolve;tx.onerror=()=>reject(reason??tx.error);tx.onabort=()=>reject(reason??tx.error??new Error('The device could not save this change. Previous records are intact.'));
  });
 }
-async function keyFor(password,salt){const material=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',hash:'SHA-256',iterations:600000,salt},material,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);}
 const aad=account=>new TextEncoder().encode(JSON.stringify([account.id,account.username,account.role]));
-async function decrypt(row,password){const key=await keyFor(password,row.salt);try{const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:row.iv,additionalData:aad(row.account)},key,row.cipher);const payload=JSON.parse(new TextDecoder().decode(plain));payload.data=validateData(payload.data);return {key,payload};}catch{throw new Error('This password could not unlock the offline copy, or the copy is damaged. Nothing has been changed.');}}
+async function decryptWithKey(row,key){try{const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:row.iv,additionalData:aad(row.account)},key,row.cipher);const payload=JSON.parse(new TextDecoder().decode(plain));payload.data=validateData(payload.data);return {key,payload};}catch{throw new Error('The offline copy could not be unlocked. Sign in again; nothing has been changed.');}}
+async function decrypt(row,password){return decryptWithKey(row,await keyFor(password,row.salt));}
 
-// Only encrypted authorized snapshots go into IndexedDB. Session proofs and
-// passwords stay in memory; the HttpOnly device cookie alone grants no access.
+// Only encrypted authorized snapshots go into IndexedDB. Per-tab continuation
+// survives refresh; passwords are never saved. The device cookie alone grants no access.
 export class AccountStore {
  constructor(account,proof=''){this.account=account;this.proof=proof;this.data=emptyData();this.raw=null;this.blocked=false;this.error='';this.message='';this.cacheEnabled=false;this.pending=null;this.baseRevision='initial';this.queue=Promise.resolve();this.closed=false;}
  static async signIn(username,password){
@@ -39,9 +40,10 @@ export class AccountStore {
   catch(error){
    if(error.status!==0||!row)throw error;
    const unlocked=await decrypt(row,password),store=new AccountStore(row.account);
-   Object.assign(store,unlocked.payload,{key:unlocked.key,salt:row.salt,raw:row.generation,cacheEnabled:true});store.message='Offline copy unlocked · Sign in online to sync';return store;
+   Object.assign(store,unlocked.payload,{key:unlocked.key,salt:row.salt,raw:row.generation,cacheEnabled:true});store.message='Offline copy unlocked · Sign in online to sync';await saveTabSession(store,password);return store;
   }
   const store=new AccountStore(login.account,login.proof);
+  store.expiresAt=login.expiresAt;
   try{
    const cloud=await api('workspace',{proof:login.proof});
    let previous;
@@ -51,8 +53,34 @@ export class AccountStore {
    if(previous?.payload.pending&&row.account.role!==login.account.role)throw new Error('Your clinic role changed while this device had pending edits. Ask the clinic administrator to review those edits; they have not been uploaded or removed.');
    if(cacheAvailable){store.key=previous?.key??await keyFor(password,store.salt=crypto.getRandomValues(new Uint8Array(16)));store.salt=row?.salt??store.salt;store.raw=row?.generation??null;store.cacheEnabled=true;await store.persist(store.data,store.pending,store.baseRevision);}
    store.message=store.cacheEnabled?'Cloud connected · Encrypted copy on device':'Online only · Offline storage unavailable';
-   if(store.pending)await store.sync();return store;
+   if(store.pending)await store.sync();await saveTabSession(store,password);return store;
   }catch(error){await api('logout',{method:'POST',body:{},proof:login.proof}).catch(()=>{});store.close();throw error;}
+ }
+ static async resume(){
+  const ticket=await readTabSession();if(!ticket)return null;
+  const store=new AccountStore(ticket.account,ticket.proof);store.sessionId=ticket.id;store.expiresAt=ticket.expiresAt;
+  try{
+   let previous;
+   if(ticket.key){
+    const row=await cached(ticket.account.username);
+    if(!row||row.account.id!==ticket.account.id||row.account.role!==ticket.account.role)throw new Error('Your saved account changed in another tab. Sign in again; your encrypted copy is unchanged.');
+    previous=await decryptWithKey(row,ticket.key);
+    Object.assign(store,previous.payload,{key:ticket.key,salt:row.salt,raw:row.generation,cacheEnabled:true});
+   }
+   let cloud;
+   try{
+    const current=await api('me',{proof:ticket.proof});
+    if(current.account.id!==ticket.account.id||current.account.username!==ticket.account.username||current.account.role!==ticket.account.role)throw new Error('Your clinic access changed. Sign in again; any pending offline edits are preserved.');
+    store.account=current.account;cloud=await api('workspace',{proof:ticket.proof});
+   }catch(error){
+    // A reachable server rejection must never fall back to offline privileges.
+    if(error.status!==0||!previous)throw error;
+    store.message=store.pending?'Saved offline · Pending clinic sync':'Offline session restored · Encrypted copy on device';return store;
+   }
+   if(!store.pending){if(store.cacheEnabled)await store.persist(cloud.data,null,cloud.revision);store.data=cloud.data;store.baseRevision=cloud.revision;}
+   store.message=store.cacheEnabled?'Cloud connected · Encrypted copy on device':'Cloud connected · Online only';
+   if(store.pending)await store.sync();return store;
+  }catch(error){store.close();throw error;}
  }
  async persist(data,pending,baseRevision){
   const iv=crypto.getRandomValues(new Uint8Array(12)),generation=crypto.randomUUID();
@@ -85,6 +113,6 @@ export class AccountStore {
   if(!this.proof)throw new Error('Sign out and sign in while connected to refresh the clinic copy.');
   const cloud=await api('workspace',{proof:this.proof});if(this.cacheEnabled)await this.persist(cloud.data,null,cloud.revision);this.data=cloud.data;this.baseRevision=cloud.revision;this.pending=null;this.error='';this.message='Latest clinic copy loaded';return this.data;
  });}
- async signOut(){await this.queue;const proof=this.proof;this.close();if(proof)await api('logout',{method:'POST',body:{},proof}).catch(()=>{});}
- close(){this.closed=true;this.proof='';this.key=null;this.data=emptyData();}
+ async signOut(){if(this.sessionId)forgetTabSession(this.sessionId);await this.queue;const proof=this.proof;this.close();if(proof)await api('logout',{method:'POST',body:{},proof}).catch(()=>{});}
+ close(){if(this.sessionId)forgetTabSession(this.sessionId);this.closed=true;this.proof='';this.key=null;this.data=emptyData();}
 }

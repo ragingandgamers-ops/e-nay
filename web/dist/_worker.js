@@ -358,10 +358,10 @@ async function api(request,env){
   if(!account||!valid)throw new ApiError(401,'The username or password is incorrect.');
   const previousDevice=cookieValue(request,cookieName(request,env));
   const device=previousDevice&&/^[a-f0-9]{64}$/.test(previousDevice)?previousDevice:randomBytes(32).toString('hex');
-  const proof=randomBytes(32).toString('hex');
-  await env.DB.prepare('INSERT INTO sessions(proof_hash,device_hash,account_id,expires_at) VALUES(?,?,?,?)').bind(digest(proof),digest(device),account.id,Date.now()+12*60*60*1000).run();
+  const proof=randomBytes(32).toString('hex'),expiresAt=Date.now()+12*60*60*1000;
+  await env.DB.prepare('INSERT INTO sessions(proof_hash,device_hash,account_id,expires_at) VALUES(?,?,?,?)').bind(digest(proof),digest(device),account.id,expiresAt).run();
   await env.DB.prepare('DELETE FROM auth_limits WHERE bucket=?').bind(digest('login-user:'+username)).run();
-  return reply({account:publicAccount(account),proof},200,{'Set-Cookie':`${cookieName(request,env)}=${device}; Path=/; HttpOnly; SameSite=Strict; Max-Age=1209600${isDevelopment(request,env)?'':'; Secure'}`});
+  return reply({account:publicAccount(account),proof,expiresAt},200,{'Set-Cookie':`${cookieName(request,env)}=${device}; Path=/; HttpOnly; SameSite=Strict; Max-Age=1209600${isDevelopment(request,env)?'':'; Secure'}`});
  }
  const account=await accountFor(request,env);
  if(path==='/api/me'&&method==='GET')return reply({account:publicAccount(account)});

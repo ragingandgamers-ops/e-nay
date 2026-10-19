@@ -45,6 +45,7 @@ jobs:
           node web/tests/browser.test.mjs
           node web/tests/presentation.test.mjs
           node web/tests/account-browser.test.mjs
+          node web/tests/session-browser.test.mjs
       - name: Cloudflare redirects and offline cache upgrades
         run: node web/tests/service-worker.test.mjs
       - name: Keep UI evidence

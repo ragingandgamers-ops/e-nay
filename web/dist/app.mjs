@@ -21,7 +21,7 @@ $('.skip-link').addEventListener('click',e=>{e.preventDefault();const target=!$(
 function toast(message){clearTimeout(toastTimer);$('#toast').textContent=message;$('#toast').hidden=false;toastTimer=setTimeout(()=>$('#toast').hidden=true,6500);}
 function info(title,body){$('#info-title').textContent=title;$('#info-body').innerHTML=body;$('#info-dialog').showModal();}
 $('#close-info').onclick=()=>$('#info-dialog').close();
-function updateStorageNotice(){const warning=$('#storage-warning');warning.hidden=!store.error;warning.textContent=store.error;$('#sync-status').textContent=store.message;$('#account-label').textContent=store.account.displayName+' · '+(staff()?'Clinic staff':'Patient / guardian');}
+function updateStorageNotice(){const warning=$('#storage-warning');warning.textContent=[store.error,store.sessionWarning].filter(Boolean).join(' ');warning.hidden=!warning.textContent;$('#sync-status').textContent=store.message;$('#account-label').textContent=store.account.displayName+' · '+(staff()?'Clinic staff':'Patient / guardian');}
 
 const patientLabel=id=>{const p=patientById(data(),id);return p?`${p.name} · ${p.id}`:id;};
 const badge=s=>`<span class="badge ${['Overdue','Expired'].includes(s)?'danger':['Due today','Low stock','Follow-up needed'].includes(s)?'warning':['Inactive','Not assessed'].includes(s)?'muted':''}">${escape(s)}</span>`;
@@ -203,3 +203,4 @@ if(offlineSupported){
 }else {connection();$('#offline-guidance').hidden=false;}
 
 startMotion();
+void accountUI.restore();
