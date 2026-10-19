@@ -4,7 +4,7 @@ E-Nay is an offline Java application for managing maternal and child health reco
 
 ## Website and mobile workspace
 
-The new [browser edition](web/README.md) has an inviting website with real licensed photography and an installable, responsive PWA. It provides maternal/child profiles, visits and food/symptom notes, patient vaccination history and staff-administered clinic doses with stock deduction, child measurements and charts, vaccine inventory, cached guides, and reviewed backup/import flows. Separate patient/staff accounts share clinic records through Cloudflare, with encrypted authorized offline copies. Sign in online first and wait for **Offline ready** and confirmation of a device copy.
+The new [browser edition](web/README.md) has an inviting website with real licensed photography and an installable, responsive PWA. It provides maternal/child profiles, visits and food/symptom notes, patient vaccination requests, staff approval with stock reservations, and staff-recorded administered doses, child measurements and charts, vaccine inventory, cached guides, and reviewed backup/import flows. Separate patient/staff accounts share clinic records through Cloudflare, with encrypted authorized offline copies. Sign in online first and wait for **Offline ready** and confirmation of a device copy.
 
 With Node.js 24+, run `node web/server/dev-server.mjs` from this folder, then open `http://127.0.0.1:8765/`. A phone uses the deployed HTTPS site and its browser's installation menu.
 

@@ -107,15 +107,26 @@ export function normalize(type, raw, data, {original = null, historical = false,
       if (r.followUp && r.followUp < r.date) fail('followUp','Follow-up cannot be before the visit.');
     } else if (type === 'vaccines') {
       r.vaccine = text(raw.vaccine,'vaccine');
-      r.dose = text(raw.dose,'dose');
-      r.scheduled = date(raw.scheduled,'scheduled');
+      if(raw.approvalStatus!==undefined)r.approvalStatus=choice(raw.approvalStatus,'approvalStatus',['Pending verification','Approved','Rejected','Cancelled']);
+      const request=r.approvalStatus&&r.approvalStatus!=='Approved';
+      r.dose = text(raw.dose,'dose',!request);
+      r.scheduled = date(raw.scheduled,'scheduled',Boolean(request));
       r.administered = date(raw.administered,'administered',true);
+      if(r.approvalStatus&&r.approvalStatus!=='Approved'&&r.administered)fail('administered','Only an approved vaccination can be recorded as administered.');
       if (r.administered > now) fail('administered','An administered dose cannot have a future date.');
       r.notes = text(raw.notes,'notes',false,2000);
+      if(r.approvalStatus){
+        r.preferredDate=date(raw.preferredDate,'preferredDate',true);
+        if(!historical&&r.preferredDate&&r.preferredDate!==original?.preferredDate&&r.preferredDate<now)fail('preferredDate','Choose today or a later preferred date.');
+        r.requestNotes=text(raw.requestNotes,'requestNotes',false,2000);
+        r.reviewNotes=text(raw.reviewNotes,'reviewNotes',false,2000);
+        if(r.approvalStatus==='Rejected'&&!r.reviewNotes)fail('reviewNotes','Explain why this request was declined so the patient knows the next step.');
+      }
       if(raw.batchId)r.batchId=text(raw.batchId,'batchId');
       if(raw.stockUse){
         if(typeof raw.stockUse!=='object'||Array.isArray(raw.stockUse))fail('batchId','Invalid vaccine stock allocation.');
         r.stockUse={batchId:text(raw.stockUse.batchId,'batchId'),date:date(raw.stockUse.date,'administered')};
+        if(raw.stockUse.kind)r.stockUse.kind=choice(raw.stockUse.kind,'batchId',['reserved','administered']);
       }
     } else if (type === 'growth') {
       r.date = date(raw.date,'date');
@@ -136,7 +147,7 @@ export function normalize(type, raw, data, {original = null, historical = false,
     if (child) {
       const eventDate = type==='vaccines' ? (r.administered || r.scheduled) : r.date;
       if (eventDate && eventDate < child.dob) fail(type==='vaccines' ? (r.administered ? 'administered':'scheduled'):'date','This date cannot be before the child’s birth.');
-      if (type==='vaccines' && r.scheduled < child.dob) fail('scheduled','The scheduled date cannot be before the child’s birth.');
+      if (type==='vaccines' && r.scheduled && r.scheduled < child.dob) fail('scheduled','The scheduled date cannot be before the child’s birth.');
       if (type==='growth' && r.date > yearsBefore(child.dob,-2)) fail('date','Growth measurements are for the child’s first two years. Historical measurements within that period can still be recorded.');
     }
   }
@@ -214,5 +225,11 @@ export function ageMonths(dob, now=today()) {
   const a=dob.split('-').map(Number), b=now.split('-').map(Number);
   return (b[0]-a[0])*12+b[1]-a[1]-(b[2]<a[2]?1:0);
 }
-export const vaccineStatus = (r,now=today()) => r.administered?'Completed':r.scheduled<now?'Overdue':r.scheduled===now?'Due today':'Upcoming';
+export const vaccinationNeedsReview=r=>r.approvalStatus==='Pending verification'||(!r.approvalStatus&&!r.stockUse&&(r.updatedByRole==='patient'||!r.administered));
+export const vaccineStatus = (r,now=today()) => {
+ if(r.approvalStatus&&r.approvalStatus!=='Approved')return r.approvalStatus;
+ if(vaccinationNeedsReview(r))return 'Needs staff review';
+ return r.administered?'Completed':r.scheduled<now?'Overdue':r.scheduled===now?'Due today':r.approvalStatus==='Approved'?'Approved / scheduled':'Upcoming';
+};
+
 export const stockStatus = (r,now=today()) => r.expires<now?'Expired':r.stock<=r.threshold?'Low stock':'Available';

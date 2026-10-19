@@ -1,5 +1,5 @@
 import {applyRecordOperations,nextProfileId} from './record-operations.mjs';
-import {emptyData,validateData,normalize} from './core.mjs';
+import {emptyData,validateData} from './core.mjs';
 import {deriveVaultKey as keyFor,saveTabSession,readTabSession,forgetTabSession} from './tab-session.mjs';
 
 export class ApiError extends Error { constructor(message,status=0){super(message);this.status=status;} }
@@ -116,10 +116,18 @@ export class AccountStore {
   if(!Object.hasOwn(this.data,type))throw new Error('Invalid record type.');
   const original=originalId?this.data[type].find(r=>r.id===originalId):null;if(originalId&&!original)throw new Error('This record no longer exists. Reload the workspace.');
   const input={...raw};if(!originalId&&!input.id)input.id=['mothers','children'].includes(type)?nextProfileId(this.data,type):crypto.randomUUID();
-  const record=normalize(type,input,this.data,{original,preserveId:true});
-  const operation={type,record:{...input,id:record.id},originalId,before:original?structuredClone(before??original):undefined};
+  // An earlier appointment may have been completed by staff since this screen
+  // was opened. Recheck a suspected duplicate without replacing pending edits.
+  if(type==='vaccines'&&this.account.role==='patient'&&!originalId&&!this.pending&&this.proof&&navigator.onLine){
+   const key=value=>String(value??'').normalize('NFC').trim().replace(/\s+/gu,' ').toLowerCase();
+   if(this.data.vaccines.some(item=>item.patient===input.patient&&['Pending verification','Approved'].includes(item.approvalStatus)&&!item.administered&&key(item.vaccine)===key(input.vaccine))){
+    const cloud=await api('workspace',{proof:this.proof});this.catalog=cloud.catalog??[];if(this.cacheEnabled)await this.persist(cloud.data,null,cloud.revision);this.data=cloud.data;this.baseRevision=cloud.revision;
+   }
+  }
+  const operation={type,record:input,originalId,before:original?structuredClone(before??original):undefined};
   const allowedIds=[...this.data.mothers,...this.data.children].map(r=>r.id);
   const next=applyRecordOperations(this.data,[operation],{role:this.account.role,allowedIds}).data;
+  const record=next[type].find(item=>item.id===(['mothers','children'].includes(type)?String(input.id).trim().toUpperCase():input.id));operation.record.id=record.id;
   if(this.pending&&!this.pending.batches){this.requireStaff();await this.write(next);return record;}
   const batch={id:crypto.randomUUID(),operations:[operation]},pending={batches:[...(this.pending?.batches??[]),batch]};
   if(pending.batches.length>500)throw new Error('Sync your pending records before adding more changes.');

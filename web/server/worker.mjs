@@ -76,7 +76,8 @@ async function saveWorkspace(db,account,input){
  let data;try{data=validateData(input.data);}catch(error){throw new ApiError(400,error.message);}
  // Older clients send whole snapshots without newer provenance/stock fields.
  // Preserve those fields on ordinary saves; reviewed replacements remain explicit.
- if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];}}
+ if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse','approvalStatus','preferredDate','requestNotes','reviewNotes'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];if(old?.stockUse?.kind&&record.stockUse&&record.stockUse.kind===undefined)record.stockUse.kind=old.stockUse.kind;}}
+ try{data=validateData(data);}catch(error){throw new ApiError(400,error.message);}
  const revision=crypto.randomUUID(),now=Date.now(),body=JSON.stringify(data);
  if(new TextEncoder().encode(body).length>MAX_BODY-2000)throw new ApiError(413,'The workspace is too large to synchronize. Your previous clinic records are intact.');
  const results=await db.batch([
@@ -126,7 +127,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'accounts-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'vaccination-requests-v1'});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
   if(raw.role&&raw.role!=='patient')throw new ApiError(403,'Staff access is assigned by the clinic; it cannot be selected during registration.');

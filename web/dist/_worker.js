@@ -108,15 +108,26 @@ function normalize(type, raw, data, {original = null, historical = false, preser
       if (r.followUp && r.followUp < r.date) fail('followUp','Follow-up cannot be before the visit.');
     } else if (type === 'vaccines') {
       r.vaccine = text(raw.vaccine,'vaccine');
-      r.dose = text(raw.dose,'dose');
-      r.scheduled = date(raw.scheduled,'scheduled');
+      if(raw.approvalStatus!==undefined)r.approvalStatus=choice(raw.approvalStatus,'approvalStatus',['Pending verification','Approved','Rejected','Cancelled']);
+      const request=r.approvalStatus&&r.approvalStatus!=='Approved';
+      r.dose = text(raw.dose,'dose',!request);
+      r.scheduled = date(raw.scheduled,'scheduled',Boolean(request));
       r.administered = date(raw.administered,'administered',true);
+      if(r.approvalStatus&&r.approvalStatus!=='Approved'&&r.administered)fail('administered','Only an approved vaccination can be recorded as administered.');
       if (r.administered > now) fail('administered','An administered dose cannot have a future date.');
       r.notes = text(raw.notes,'notes',false,2000);
+      if(r.approvalStatus){
+        r.preferredDate=date(raw.preferredDate,'preferredDate',true);
+        if(!historical&&r.preferredDate&&r.preferredDate!==original?.preferredDate&&r.preferredDate<now)fail('preferredDate','Choose today or a later preferred date.');
+        r.requestNotes=text(raw.requestNotes,'requestNotes',false,2000);
+        r.reviewNotes=text(raw.reviewNotes,'reviewNotes',false,2000);
+        if(r.approvalStatus==='Rejected'&&!r.reviewNotes)fail('reviewNotes','Explain why this request was declined so the patient knows the next step.');
+      }
       if(raw.batchId)r.batchId=text(raw.batchId,'batchId');
       if(raw.stockUse){
         if(typeof raw.stockUse!=='object'||Array.isArray(raw.stockUse))fail('batchId','Invalid vaccine stock allocation.');
         r.stockUse={batchId:text(raw.stockUse.batchId,'batchId'),date:date(raw.stockUse.date,'administered')};
+        if(raw.stockUse.kind)r.stockUse.kind=choice(raw.stockUse.kind,'batchId',['reserved','administered']);
       }
     } else if (type === 'growth') {
       r.date = date(raw.date,'date');
@@ -137,7 +148,7 @@ function normalize(type, raw, data, {original = null, historical = false, preser
     if (child) {
       const eventDate = type==='vaccines' ? (r.administered || r.scheduled) : r.date;
       if (eventDate && eventDate < child.dob) fail(type==='vaccines' ? (r.administered ? 'administered':'scheduled'):'date','This date cannot be before the child’s birth.');
-      if (type==='vaccines' && r.scheduled < child.dob) fail('scheduled','The scheduled date cannot be before the child’s birth.');
+      if (type==='vaccines' && r.scheduled && r.scheduled < child.dob) fail('scheduled','The scheduled date cannot be before the child’s birth.');
       if (type==='growth' && r.date > yearsBefore(child.dob,-2)) fail('date','Growth measurements are for the child’s first two years. Historical measurements within that period can still be recorded.');
     }
   }
@@ -215,7 +226,13 @@ function ageMonths(dob, now=today()) {
   const a=dob.split('-').map(Number), b=now.split('-').map(Number);
   return (b[0]-a[0])*12+b[1]-a[1]-(b[2]<a[2]?1:0);
 }
-const vaccineStatus = (r,now=today()) => r.administered?'Completed':r.scheduled<now?'Overdue':r.scheduled===now?'Due today':'Upcoming';
+const vaccinationNeedsReview=r=>r.approvalStatus==='Pending verification'||(!r.approvalStatus&&!r.stockUse&&(r.updatedByRole==='patient'||!r.administered));
+const vaccineStatus = (r,now=today()) => {
+ if(r.approvalStatus&&r.approvalStatus!=='Approved')return r.approvalStatus;
+ if(vaccinationNeedsReview(r))return 'Needs staff review';
+ return r.administered?'Completed':r.scheduled<now?'Overdue':r.scheduled===now?'Due today':r.approvalStatus==='Approved'?'Approved / scheduled':'Upcoming';
+};
+
 const stockStatus = (r,now=today()) => r.expires<now?'Expired':r.stock<=r.threshold?'Low stock':'Available';
 
 
@@ -230,19 +247,25 @@ function nextProfileId(data,type){
 }
 function canonical(record){return JSON.stringify(record);}
 function useKey(use){return use?.batchId??'';}
+const vaccineKey=value=>String(value??'').normalize('NFC').trim().replace(/\s+/gu,' ').toLowerCase();
 function applyStock(next,previous,record,raw,now){
  const oldUse=previous?.stockUse;
- const clinic=raw.stockMode==='clinic'||(raw.stockMode!=='external'&&Boolean(raw.batchId));
+ const inactive=record.approvalStatus&&record.approvalStatus!=='Approved';
+ const clinic=!inactive&&(raw.stockMode==='clinic'||(raw.stockMode!=='external'&&Boolean(raw.batchId)));
+ if(inactive&&previous?.administered)throw new ValidationError('approvalStatus','An administered vaccination cannot be cancelled or declined. Ask clinic staff to review a correction.');
  let batch,newUse;
  if(clinic){
   batch=next.inventory.find(item=>item.id===raw.batchId);
   if(!batch)throw new ValidationError('batchId','Choose an existing vaccine batch, or choose vaccination recorded elsewhere.');
-  if(batch.vaccine!==record.vaccine)throw new ValidationError('vaccine','The vaccine must match the selected inventory batch.');
+  if(vaccineKey(batch.vaccine)!==vaccineKey(record.vaccine))throw new ValidationError('vaccine','The vaccine must match the selected inventory batch.');
+  record.vaccine=batch.vaccine;
+  if(record.approvalStatus==='Approved'&&!record.administered&&record.scheduled<now&&(!oldUse||oldUse.kind!=='reserved'||previous.scheduled!==record.scheduled))throw new ValidationError('scheduled','Choose today or a later appointment date when reserving a clinic dose.');
   const eventDate=record.administered||record.scheduled;
   if(batch.expires<eventDate)throw new ValidationError('batchId','This batch expires before the vaccination date. Choose another batch.');
   if(batch.stock<=0&&useKey(oldUse)!==batch.id)throw new ValidationError('batchId','This vaccine batch has no available doses. Choose another batch.');
   record.batchId=batch.id;
-  if(record.administered)newUse={batchId:batch.id,date:record.administered};
+  if(record.approvalStatus==='Approved')newUse={batchId:batch.id,date:eventDate,kind:record.administered?'administered':'reserved'};
+  else if(record.administered)newUse={batchId:batch.id,date:record.administered,kind:'administered'};
  }else delete record.batchId;
  if(useKey(oldUse)!==useKey(newUse)){
   if(oldUse){const oldBatch=next.inventory.find(item=>item.id===oldUse.batchId);if(!oldBatch)throw new ValidationError('batchId','The previous stock allocation needs clinic review before this vaccination can be corrected.');if(oldBatch.stock>=100000)throw new ValidationError('stock','Returning this allocation would exceed the stock limit. Review inventory first.');oldBatch.stock++;}
@@ -250,6 +273,30 @@ function applyStock(next,previous,record,raw,now){
  }
  if(newUse)record.stockUse=newUse;else delete record.stockUse;
 }
+
+function prepareVaccination(next,previous,raw,role){
+ if(role==='patient'){
+  if(previous&&previous.approvalStatus!=='Pending verification')throw recordError(403,'Patients can change only pending vaccination requests. Contact clinic staff about approved doses or vaccination history.');
+  const cancelling=previous&&raw.approvalStatus==='Cancelled';
+  raw.approvalStatus=cancelling?'Cancelled':'Pending verification';
+  raw.preferredDate=raw.preferredDate??previous?.preferredDate??raw.scheduled??'';
+  raw.requestNotes=raw.requestNotes??previous?.requestNotes??raw.notes??'';
+  raw.reviewNotes=previous?.reviewNotes??'';raw.notes=previous?.notes??'';
+  raw.scheduled='';raw.administered='';delete raw.batchId;delete raw.stockUse;
+  if(previous&&raw.patient!==previous.patient)throw new ValidationError('patient','A vaccination request cannot be moved to another patient. Submit a new request instead.');
+  if(!previous&&next.vaccines.some(item=>item.patient===raw.patient&&['Pending verification','Approved'].includes(item.approvalStatus)&&!item.administered&&vaccineKey(item.vaccine)===vaccineKey(raw.vaccine)))throw new ValidationError('vaccine','You already have a pending or approved request for this vaccine. Open that request or contact the clinic.');
+ }else{
+  raw.approvalStatus=raw.approvalStatus??previous?.approvalStatus??'Approved';
+  if(previous?.approvalStatus&&raw.patient!==previous.patient)throw new ValidationError('patient','A vaccination request cannot be moved to another patient. Submit a new request instead.');
+  raw.notes=raw.notes??previous?.notes??'';raw.dose=raw.dose??previous?.dose??'';
+  raw.preferredDate=previous?.preferredDate??raw.preferredDate??'';
+  raw.requestNotes=previous?.requestNotes??raw.requestNotes??'';
+  raw.reviewNotes=raw.reviewNotes??previous?.reviewNotes??'';
+  if(previous?.approvalStatus==='Pending verification'&&raw.approvalStatus==='Approved'){if(vaccineKey(previous.vaccine)!==vaccineKey(raw.vaccine))throw new ValidationError('vaccine','Approve the vaccine the patient requested. Decline with a reason if a different vaccine is needed.');raw.stockMode='clinic';}
+  if(raw.approvalStatus!=='Approved'){raw.scheduled='';raw.administered='';delete raw.batchId;delete raw.stockUse;}
+ }
+}
+
 // The server applies these operations to its current clinic copy. Patients never
 // submit a replacement clinic snapshot. New patient profile IDs are allocated
 // globally, and references in subsequent offline operations are remapped together.
@@ -278,12 +325,9 @@ function applyRecordOperations(data,operations,{role,allowedIds=[],allocatePatie
   if(!profile&&!previous&&(!/^[a-zA-Z0-9-]{16,100}$/.test(raw.id??'')))throw new ValidationError('id','Invalid record identifier.');
   if(!previous&&next[type].some(record=>record.id===raw.id))throw new ValidationError('id','This ID already exists. Open the existing profile to edit it.');
   // Provenance and stock allocations are assigned here, never trusted from a
-  // patient's request. Patient edits do not refund or consume physical stock.
+  // patient's request. Patient requests do not reserve, refund or consume physical stock.
   raw.updatedByRole=role;
-  if(type==='vaccines'&&role==='patient'){
-   if(previous?.stockUse)raw.stockUse=previous.stockUse;else delete raw.stockUse;
-   if(previous?.batchId)raw.batchId=previous.batchId;else delete raw.batchId;
-  }
+  if(type==='vaccines')prepareVaccination(next,previous,raw,role);
   const record=normalize(type,raw,next,{original:previous,preserveId:true,now});
   if(type==='vaccines'&&role==='staff')applyStock(next,previous,record,raw,now);
   if(previous)next[type][next[type].findIndex(item=>item.id===previous.id)]=record;else next[type].push(record);
@@ -407,7 +451,8 @@ async function saveWorkspace(db,account,input){
  let data;try{data=validateData(input.data);}catch(error){throw new ApiError(400,error.message);}
  // Older clients send whole snapshots without newer provenance/stock fields.
  // Preserve those fields on ordinary saves; reviewed replacements remain explicit.
- if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];}}
+ if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse','approvalStatus','preferredDate','requestNotes','reviewNotes'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];if(old?.stockUse?.kind&&record.stockUse&&record.stockUse.kind===undefined)record.stockUse.kind=old.stockUse.kind;}}
+ try{data=validateData(data);}catch(error){throw new ApiError(400,error.message);}
  const revision=crypto.randomUUID(),now=Date.now(),body=JSON.stringify(data);
  if(new TextEncoder().encode(body).length>MAX_BODY-2000)throw new ApiError(413,'The workspace is too large to synchronize. Your previous clinic records are intact.');
  const results=await db.batch([
@@ -457,7 +502,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'accounts-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'vaccination-requests-v1'});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
   if(raw.role&&raw.role!=='patient')throw new ApiError(403,'Staff access is assigned by the clinic; it cannot be selected during registration.');

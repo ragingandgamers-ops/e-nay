@@ -1,3 +1,13 @@
+# Vaccination request and approval release — 19 October 2026
+
+- 48 core/API tests passed, including patient approval forgery, own-family boundaries, pending edits/withdrawal, approval reservations, last-dose concurrency, rejection reasons, reservation returns, duplicate receipts and old-client metadata preservation.
+- 252 browser assertions passed across general workflows (66), presentation (16), accounts (17), family records (39), vaccination requests (39), session restoration (26), and localization (49).
+- The Cloudflare redirect/offline upgrade regression passed.
+
+The request suite covers separate patient/staff sessions, an offline request and refresh, staff verification, approved appointment visibility, reservation/administration counts, declines, cancellations, stale appointment refresh, conflict recovery with a private pending download, both languages and 320/390/768/1440px layouts. Tests use disposable fictional accounts and records. Physical iOS/Safari remains untested.
+
+Earlier release evidence follows.
+
 # Family records and connected vaccination release — 19 October 2026
 
 Validation used disposable fictional accounts and data on the local Node 24 server. No real patient records were used.
