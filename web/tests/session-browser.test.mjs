@@ -19,7 +19,7 @@ try{
  const original=await page.evaluate(key=>{const t=JSON.parse(sessionStorage.getItem(key));return {id:t.id,expiresAt:t.expiresAt};},ticketKey);
  for(let i=0;i<2;i++){await page.reload();await ready(page);}
  check(logins===1,'Repeated online refresh restores the session without asking for a password or logging in again');
- check(await page.locator('#page-content h1').textContent()==='Maternal profiles','Refresh keeps the current workspace section');
+ check(await page.locator('#page-content h1').textContent()==='Mothers’ records','Refresh keeps the current workspace section');
  const resumed=await page.evaluate(async key=>{const {readTabSession}=await import('./tab-session.mjs'),t=await readTabSession(),stored=sessionStorage.getItem(key);return {id:t.id,expiresAt:t.expiresAt,extractable:t.key.extractable,noPassword:!stored.includes('Fictional-test-password'),noRecords:!stored.includes('mothers'),localKeys:Object.keys(localStorage)};},ticketKey);
  check(resumed.id===original.id&&resumed.expiresAt===original.expiresAt,'Refresh retains the original expiry rather than extending it');
  check(!resumed.extractable&&resumed.noPassword&&resumed.noRecords,'Restored vault key is non-extractable; tab storage has no password or clinical records');

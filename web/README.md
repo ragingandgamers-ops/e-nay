@@ -14,6 +14,14 @@ Open http://127.0.0.1:8765/. This serves both the website and its account API. A
 
 For automated tests only, start with --test. This uses an in-memory database and fictional test.staff, test.patient and other.patient accounts with the password in tests/session.mjs. These fixtures are never included in the production deployment and must not be used as real credentials.
 
+## Language and local context
+
+The English interface keeps welcoming Filipino phrases; an English / Filipino control switches the full interface without a network request. Filipino copy covers the public pages, accounts, family and staff screens, forms, review prompts, guidance, and expected validation/session errors. The preference is stored separately in enay.language.v1 localStorage and is available offline. If preference storage is blocked, switching still works for the current page.
+
+Only explicitly marked UI literals, labels and message templates are translated. Patient names, entered notes, usernames, IDs, vaccine names, exported files, and canonical option values are unchanged. Switching updates existing DOM text and accessible labels instead of rerendering forms, preserving unsaved fields, search/filter selections, chosen import files and review confirmations. Language controls are also inside dialogs. Linked patient access and server permissions are independent of language. Dates follow the selected locale. External source pages and browser-native date/file/validation controls use their own language settings.
+
+The photographs are documented as taken in Manila and Cagayan Valley; credits and licenses are in ASSETS.md and the footer. No AI-generated imagery is used.
+
 ## Accounts and privacy
 
 Public registration always creates a patient account. Only a trusted database owner can approve a staff account; the public API cannot promote accounts. Staff manage clinical profiles, visits, vaccination dates, growth measurements, vaccine inventory, imports and clinic backups. Staff link verified patients/guardians to existing maternal or child profiles through Patient access. Patients can view only their linked records and general care guides. All private API calls check the current account role on the server. Changing a URL or hiding/showing controls does not grant access.
@@ -66,10 +74,11 @@ node web/tests/browser.test.mjs
 node web/tests/presentation.test.mjs
 node web/tests/account-browser.test.mjs
 node web/tests/session-browser.test.mjs
+node web/tests/language-browser.test.mjs
 node web/tests/service-worker.test.mjs
 ```
 
-The suites cover core validation/recovery, API authorization and role revocation, linked-only patient reads, offline encrypted unlock, online/offline refresh, continuation expiry/tampering, unavailable storage, wrong passwords, sign-out, malformed imports, stale tabs/devices, idempotent saves, mobile layouts, reduced motion and hosting-cache recovery. Browser screenshots go to ignored test-output/web/. BROWSER_BIN, PLAYWRIGHT_MODULE and ENAY_URL may select local testing dependencies/URL. Tests use fictional records only; physical iPhone/Safari has not been tested.
+The suites cover bilingual navigation and forms, literal record preservation, offline language switching, four-width Filipino layouts, core validation/recovery, API authorization and role revocation, linked-only patient reads, offline encrypted unlock, online/offline refresh, continuation expiry/tampering, unavailable storage, wrong passwords, sign-out, malformed imports, stale tabs/devices, idempotent saves, mobile layouts, reduced motion and hosting-cache recovery. Browser screenshots go to ignored test-output/web/. BROWSER_BIN, PLAYWRIGHT_MODULE and ENAY_URL may select local testing dependencies/URL. Tests use fictional records only; physical iPhone/Safari has not been tested.
 
 ## Visual design
 

@@ -9,3 +9,9 @@ Plus Jakarta Sans by Tokotype is hosted locally as a variable TTF, licensed unde
 Components share primary/hover/text/surface/border/status tokens, a 4-pixel spacing scale, radii from 10 to 32 pixels and subtle card/float shadows. dist/styles.css retains the responsive layout and behavioral styles; dist/design-system.css applies the shared component appearance. dist/icons.mjs provides small code-native outline icons. Existing data, role permissions, import recovery and motion preferences remain active.
 
 Design verification covers actual computed palette/font loading, readable primary/status text contrast, active navigation and all phone/desktop workflows. Mobile tables become compact cards; forms use 16px inputs on phones to prevent iOS focus zoom. Physical Safari has not been independently tested.
+
+## Language and Philippine context
+
+The English interface keeps Filipino greetings and short supportive phrases. The English / Filipino control is available on every screen and inside dialogs. The Filipino interface uses familiar local wording and retains common borrowed terms such as account, offline, backup and health worker. Longer text wraps on mobile; medical units and IDs remain canonical. Literal UI annotations allow in-place language changes without rebuilding forms or translating personal data.
+
+Real photographs documented as taken in Manila and Cagayan Valley replace the former page photographs. ASSETS.md records photographer credits, licenses and processing. The versioned share card uses the same new Manila photograph. No AI-generated images are used.
