@@ -7,7 +7,7 @@ const {chromium}=createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE||'
 const base=process.env.ENAY_URL||'http://127.0.0.1:8765/';
 const browser=await chromium.launch({headless:true,...(process.env.BROWSER_BIN?{executablePath:process.env.BROWSER_BIN}:{})});
 let checks=0;const check=(condition,message)=>{assert.ok(condition,message);checks++;};
-const language=async(page,value)=>{const inside=page.locator(`dialog[open] [data-language="${value}"]`);await (await inside.count()?inside:page.locator(`.language-bar [data-language="${value}"]`)).click();};
+const language=async(page,value)=>{const inside=page.locator(`dialog[open] [data-language="${value}"]`);if(await inside.count()){await inside.click();return;}const bar=page.locator(`.language-bar [data-language="${value}"]`);if(await bar.isVisible())await bar.click();else{await page.locator('#open-profile').click();await page.locator(`#profile-dialog [data-language="${value}"]`).click();await page.locator('#close-profile').click();}};
 const route=async(page,value)=>{await page.evaluate(value=>location.hash='workspace'+(value?'/'+value:''),value);await page.locator('#page-content h1').waitFor();};
 try{
  await resetClinic(base);await mkdir('test-output/web',{recursive:true});
@@ -48,9 +48,9 @@ try{
  await route(page,'access');await page.locator('.patient-link-form').first().waitFor();const form=page.locator('.patient-link-form').filter({has:page.getByText('@test.patient',{exact:true})});await form.locator('[value="M001"]').check();await form.getByRole('button').click();await form.getByText('Na-update ang pagbabahagi sa pasyente.',{exact:true}).waitFor();
  const family=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'}),patient=await family.newPage();patient.on('pageerror',error=>errors.push(error.message));await patient.goto(base+'#workspace');await language(patient,'fil');await signIn(patient,'test.patient');
  check((await patient.locator('#page-content h1').textContent()).includes('Malapit sa inyo ang pag-aalaga.'),'Patient overview is localized independently of staff');
- check(!await patient.locator('[data-page="inventory"]').isVisible()&&await patient.locator('[data-add]').count()===0,'Changing language cannot grant patient access to clinical editing or inventory');
- await route(patient,'mothers');await patient.locator('[data-view="mothers"]').click();check((await patient.locator('#info-body').textContent()).includes('pangalan')&&(await patient.locator('#info-body').textContent()).includes('Active'),'Patient details translate field labels while keeping the name original');await patient.locator('#close-info').click();
- await patient.getByText('Handa nang gamitin offline · Naka-download na ang app',{exact:true}).waitFor({timeout:20000});await family.setOffline(true);await patient.reload();await patient.locator('#workspace-view').waitFor({state:'visible'});
+ check(!await patient.locator('[data-page="inventory"]').isVisible()&&await patient.locator('[data-add="mothers"]').isVisible(),'Changing language preserves patient editing and staff-only inventory boundaries');
+ await route(patient,'mothers');await patient.locator('[data-edit="mothers"]').click();check((await patient.locator('#form-fields').textContent()).toLowerCase().includes('pangalan')&&await patient.locator('#field-name').inputValue()==='Active','Patient edit fields translate while keeping the name original');await patient.locator('#close-form').click();
+ await patient.waitForFunction(()=>document.querySelector('#offline-status').textContent==='Handa nang gamitin offline · Naka-download na ang app',null,{timeout:20000});await family.setOffline(true);await patient.reload();await patient.locator('#workspace-view').waitFor({state:'visible'});
  check(await patient.locator('html').getAttribute('lang')==='fil'&&await patient.locator('#record-results strong').textContent()==='Active','Offline refresh restores the Filipino interface and encrypted account copy');
  await language(patient,'en');check((await patient.locator('#page-content h1').textContent()).includes('Mothers’ records'),'Language switch works entirely offline');await language(patient,'fil');
  await patient.screenshot({path:'test-output/web/localized-patient-mobile.png',fullPage:true});

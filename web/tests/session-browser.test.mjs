@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir} from 'node:fs/promises';
 import {signIn,privateCopy,resetClinic} from './session.mjs';
+import {profileAction,waitOffline} from './session.mjs';
 import {today} from '../dist/core.mjs';
 const {chromium}=createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE||'playwright');
 const base=process.env.ENAY_URL||'http://127.0.0.1:8765/';
@@ -29,7 +30,7 @@ try{
  const second=await context.newPage();await second.goto(base+'#workspace/inventory');await locked(second);check(!await second.locator('#workspace-view').isVisible(),'An independent new tab cannot use the shared cookie to enter a staff session');
  await signIn(second,'test.patient');await second.reload();await ready(second);check(!await second.locator('[data-page="inventory"]').isVisible(),'Patient refresh preserves patient permissions');
  await page.reload();await ready(page);check(await page.locator('[data-page="inventory"]').isVisible(),'A patient session in another tab does not replace the staff session');await second.close();
- await page.getByText('Offline ready · App downloaded',{exact:true}).waitFor({timeout:20000});
+ await waitOffline(page);
  await context.setOffline(true);await page.reload();await ready(page);check(logins===1,'Offline refresh restores the authorized encrypted copy without a password prompt');
  await page.locator('[data-add="mothers"]').first().click();for(const [key,value]of Object.entries({id:'M001',name:'Fictional Refresh Mother',age:'25',edd:today()}))await page.locator('#field-'+key).fill(value);await page.locator('#record-form [type="submit"]').click();await page.locator('#form-dialog').waitFor({state:'hidden'});
  const pendingGeneration=await snapshot(page);await page.reload();await ready(page);check((await privateCopy(page)).mothers.some(r=>r.id==='M001'),'Pending offline record survives refresh');check(await snapshot(page)===pendingGeneration,'Offline restoration does not rewrite the pending copy');
@@ -39,7 +40,7 @@ try{
  await signIn(page);await page.evaluate(key=>{const t=JSON.parse(sessionStorage.getItem(key));t.expiresAt=Date.now()-1;sessionStorage.setItem(key,JSON.stringify(t));},ticketKey);await page.reload();await locked(page);
  check((await page.locator('#auth-error').textContent()).includes('expired')&&await snapshot(page)===pendingGeneration,'An expired session locks on refresh while preserving encrypted pending edits');
  await signIn(page);await page.reload();await ready(page);check((await privateCopy(page)).mothers.length===1,'A password-unlocked offline session can also survive a refresh');
- await page.locator('#sign-out').click();await locked(page);await page.reload();await locked(page);
+ await profileAction(page,'sign-out');await locked(page);await page.reload();await locked(page);
  check(!await page.locator('#workspace-view').isVisible()&&await page.evaluate(key=>sessionStorage.getItem(key),ticketKey)===null,'Sign-out remains effective after an offline refresh');
  check(await snapshot(page)===pendingGeneration,'Sign-out preserves the encrypted draft for a future password unlock');
  await context.setOffline(false);await signIn(page);await page.reload();await ready(page);check((await page.locator('#sync-status').textContent()).startsWith('Cloud connected'),'Returning online revalidates and syncs the pending copy');
@@ -50,6 +51,6 @@ try{
  await context.close();
  const denied=await browser.newContext();await denied.addInitScript(()=>{const set=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key==='enay.tab-session.v1')throw new DOMException('Storage blocked','SecurityError');return set.call(this,key,value);};});const deniedPage=await denied.newPage();await deniedPage.goto(base+'#workspace');await signIn(deniedPage);check((await deniedPage.locator('#storage-warning').textContent()).includes('cannot keep this tab signed in'),'Blocked session storage reports the limitation without preventing sign-in');await deniedPage.reload();await locked(deniedPage);check(!await deniedPage.locator('#workspace-view').isVisible(),'Blocked session storage fails closed on refresh');await denied.close();
  const onlineOnly=await browser.newContext();await onlineOnly.addInitScript(()=>Object.defineProperty(window,'indexedDB',{get(){throw new DOMException('Unavailable','SecurityError');}}));const onlinePage=await onlineOnly.newPage();await onlinePage.goto(base+'#workspace');await signIn(onlinePage);await onlinePage.reload();await ready(onlinePage);check((await onlinePage.locator('#sync-status').textContent()).includes('Online only'),'Online-only sessions can refresh when IndexedDB is unavailable');
- await onlinePage.locator('#sign-out').click();await onlinePage.reload();await locked(onlinePage);check(!await onlinePage.locator('#workspace-view').isVisible(),'Online-only sign-out also stays signed out after refresh');await onlineOnly.close();
+ await profileAction(onlinePage,'sign-out');await onlinePage.reload();await locked(onlinePage);check(!await onlinePage.locator('#workspace-view').isVisible(),'Online-only sign-out also stays signed out after refresh');await onlineOnly.close();
  console.log(`${checks} session browser assertions passed: online/offline refresh, encrypted drafts, expiry, revocation, roles, sign-out and unavailable storage.`);
 }finally{await browser.close();}

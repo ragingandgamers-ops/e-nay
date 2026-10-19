@@ -1,6 +1,7 @@
 import {scrypt,randomBytes,createHash,timingSafeEqual} from 'node:crypto';
 import {Buffer} from 'node:buffer';
 import {validateData,emptyData} from '../dist/core.mjs';
+import {applyRecordOperations} from '../dist/record-operations.mjs';
 import {SCHEMA} from './schema.mjs';
 
 const readyDatabases=new WeakMap();
@@ -58,13 +59,14 @@ function staffOnly(account){if(account.role!=='staff')throw new ApiError(403,'Th
 async function workspaceFor(db,account){
  const row=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
  const data=validateData(JSON.parse(row.body));
- if(account.role==='staff')return {revision:row.revision,data,savedAt:row.updated_at};
+ const catalog=[...new Set(data.inventory.map(batch=>batch.vaccine))].sort();
+ if(account.role==='staff')return {revision:row.revision,data,catalog,savedAt:row.updated_at};
  const links=await db.prepare('SELECT patient_id FROM patient_links WHERE account_id=?').bind(account.id).all();
  const allowed=new Set(links.results.map(link=>link.patient_id)),filtered=emptyData();
  filtered.mothers=data.mothers.filter(record=>allowed.has(record.id));
  filtered.children=data.children.filter(record=>allowed.has(record.id));
  for(const type of ['visits','vaccines','growth'])filtered[type]=data[type].filter(record=>allowed.has(record.patient));
- return {revision:row.revision,data:filtered,savedAt:row.updated_at};
+ return {revision:row.revision,data:filtered,catalog,savedAt:row.updated_at};
 }
 async function saveWorkspace(db,account,input){
  staffOnly(account);
@@ -72,6 +74,9 @@ async function saveWorkspace(db,account,input){
  const existing=await db.prepare('SELECT * FROM sync_operations WHERE id=?').bind(input.operationId).first();
  if(existing){if(existing.account_id!==account.id)throw new ApiError(409,'This synchronization identifier is already in use.');return {revision:existing.revision};}
  let data;try{data=validateData(input.data);}catch(error){throw new ApiError(400,error.message);}
+ // Older clients send whole snapshots without newer provenance/stock fields.
+ // Preserve those fields on ordinary saves; reviewed replacements remain explicit.
+ if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];}}
  const revision=crypto.randomUUID(),now=Date.now(),body=JSON.stringify(data);
  if(new TextEncoder().encode(body).length>MAX_BODY-2000)throw new ApiError(413,'The workspace is too large to synchronize. Your previous clinic records are intact.');
  const results=await db.batch([
@@ -85,6 +90,37 @@ async function saveWorkspace(db,account,input){
  if(results[0].meta.changes!==1){const previous=await db.prepare('SELECT * FROM sync_operations WHERE id=?').bind(input.operationId).first();if(previous?.account_id===account.id)return {revision:previous.revision};throw new ApiError(409,'Clinic records changed on another device. Your pending copy is preserved. Review or export it before loading the newer clinic copy.');}
  return {revision,savedAt:now};
 }
+
+async function recordReceipt(db,account,operationId){
+ const receipt=await db.prepare('SELECT * FROM sync_operations WHERE id=?').bind(operationId).first();
+ if(!receipt)return null;
+ if(receipt.account_id!==account.id)throw new ApiError(409,'This synchronization identifier is already in use.');
+ const mapping=await db.prepare('SELECT map_json FROM record_sync_maps WHERE operation_id=?').bind(operationId).first();
+ return {...await workspaceFor(db,account),idMap:JSON.parse(mapping?.map_json??'{}')};
+}
+async function saveRecords(db,account,input){
+ if(typeof input.operationId!=='string'||!/^[a-zA-Z0-9-]{16,80}$/.test(input.operationId))throw new ApiError(400,'The synchronization identifier is invalid.');
+ for(let attempt=0;attempt<3;attempt++){
+  const receipt=await recordReceipt(db,account,input.operationId);if(receipt)return receipt;
+  const current=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
+  const links=await db.prepare('SELECT patient_id FROM patient_links WHERE account_id=?').bind(account.id).all();
+  let applied;try{applied=applyRecordOperations(JSON.parse(current.body),input.operations,{role:account.role,allowedIds:links.results.map(link=>link.patient_id),allocatePatientIds:true});}catch(error){throw new ApiError(error.status??400,error.message);}
+  const body=JSON.stringify(applied.data),revision=crypto.randomUUID(),now=Date.now();
+  if(new TextEncoder().encode(body).length>MAX_BODY-2000)throw new ApiError(413,'The workspace is too large to synchronize. Your previous clinic records are intact.');
+  const condition=" WHERE EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)";
+  const results=await db.batch([
+   db.prepare("UPDATE workspace SET revision=?,body=?,last_operation=?,updated_at=? WHERE id='clinic' AND revision=?").bind(revision,body,input.operationId,now,current.revision),
+   ...applied.newLinks.map(id=>db.prepare('INSERT OR IGNORE INTO patient_links(account_id,patient_id) SELECT ?,?'+condition).bind(account.id,id,input.operationId)),
+   db.prepare('INSERT OR IGNORE INTO sync_operations(id,account_id,revision,created_at) SELECT ?,?,?,?'+condition).bind(input.operationId,account.id,revision,now,input.operationId),
+   db.prepare('INSERT OR IGNORE INTO record_sync_maps(operation_id,map_json) SELECT ?,?'+condition).bind(input.operationId,JSON.stringify(applied.idMap),input.operationId),
+   db.prepare("INSERT OR IGNORE INTO audit_events(id,account_id,action,revision,created_at) SELECT ?,?,'record-sync',?,?"+condition).bind(input.operationId,account.id,revision,now,input.operationId)
+  ]);
+  if(results[0].meta.changes===1)return {...await workspaceFor(db,account),idMap:applied.idMap};
+ }
+ const receipt=await recordReceipt(db,account,input.operationId);if(receipt)return receipt;
+ throw new ApiError(409,'Clinic records are being updated. Your pending changes are preserved. Try syncing again.');
+}
+
 async function api(request,env){
  if(!env.DB)throw new ApiError(503,'The clinic account service is not configured yet.');
  await setup(env.DB);
@@ -100,7 +136,7 @@ async function api(request,env){
   if(await env.DB.prepare('SELECT id FROM accounts WHERE username=?').bind(username).first())throw new ApiError(409,'That username is unavailable.');
   try{await env.DB.prepare("INSERT INTO accounts(id,username,display_name,password_hash,role,created_at) VALUES(?,?,?,?,'patient',?)").bind(crypto.randomUUID(),username,displayName,await passwordHash(password),Date.now()).run();}
   catch(error){if(/UNIQUE/i.test(error.message))throw new ApiError(409,'That username is unavailable.');throw error;}
-  return reply({message:'Your patient account is ready. Your health worker can link your care records.'},201);
+  return reply({message:'Your patient account is ready. Add your own family records or ask your health worker to link existing records.'},201);
  }
  if(path==='/api/login'&&method==='POST'){
   const {username,password}=credentials(await bodyOf(request));
@@ -123,6 +159,7 @@ async function api(request,env){
   await env.DB.prepare('DELETE FROM sessions WHERE proof_hash=?').bind(digest(request.headers.get('X-Enay-Access'))).run();return reply({signedOut:true});
  }
  if(path==='/api/workspace'&&method==='GET')return reply(await workspaceFor(env.DB,account));
+ if(path==='/api/records'&&method==='POST')return reply(await saveRecords(env.DB,account,await bodyOf(request)));
  if(path==='/api/workspace'&&method==='PUT')return reply(await saveWorkspace(env.DB,account,await bodyOf(request)));
  if(path==='/api/inventory'){staffOnly(account);if(method==='GET')return reply({inventory:(await workspaceFor(env.DB,account)).data.inventory});}
  if(path==='/api/accounts'&&method==='GET'){
@@ -135,7 +172,14 @@ async function api(request,env){
   if(!target)throw new ApiError(400,'Choose an active patient account.');
   const clinic=await workspaceFor(env.DB,account),validIds=new Set([...clinic.data.mothers,...clinic.data.children].map(r=>r.id));
   if(!Array.isArray(input.patientIds)||input.patientIds.length>100||new Set(input.patientIds).size!==input.patientIds.length||input.patientIds.some(id=>!validIds.has(id)))throw new ApiError(400,'Choose existing maternal or child profiles.');
-  await env.DB.batch([env.DB.prepare('DELETE FROM patient_links WHERE account_id=?').bind(target.id),...input.patientIds.map(id=>env.DB.prepare('INSERT INTO patient_links(account_id,patient_id) VALUES(?,?)').bind(target.id,id)),env.DB.prepare("INSERT INTO audit_events(id,account_id,action,created_at) VALUES(?,?,'patient-link-change',?)").bind(crypto.randomUUID(),account.id,Date.now())]);
+  const linkOperation=crypto.randomUUID(),linkRevision=crypto.randomUUID(),linkNow=Date.now(),condition=" AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)";
+  const changed=await env.DB.batch([
+   env.DB.prepare("UPDATE workspace SET revision=?,last_operation=?,updated_at=? WHERE id='clinic' AND revision=?").bind(linkRevision,linkOperation,linkNow,clinic.revision),
+   env.DB.prepare('DELETE FROM patient_links WHERE account_id=?'+condition).bind(target.id,linkOperation),
+   ...input.patientIds.map(id=>env.DB.prepare("INSERT INTO patient_links(account_id,patient_id) SELECT ?,? WHERE EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(target.id,id,linkOperation)),
+   env.DB.prepare("INSERT INTO audit_events(id,account_id,action,created_at) SELECT ?,?,'patient-link-change',? WHERE EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(linkOperation,account.id,linkNow,linkOperation)
+  ]);
+  if(changed[0].meta.changes!==1)throw new ApiError(409,'Clinic records changed. Refresh patient access and review these links again.');
   return reply({linked:true});
  }
  throw new ApiError(404,'This operation is not available.');

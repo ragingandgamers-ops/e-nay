@@ -1,3 +1,4 @@
+import {applyRecordOperations,nextProfileId} from './record-operations.mjs';
 import {emptyData,validateData,normalize} from './core.mjs';
 import {deriveVaultKey as keyFor,saveTabSession,readTabSession,forgetTabSession} from './tab-session.mjs';
 
@@ -30,8 +31,28 @@ async function decrypt(row,password){return decryptWithKey(row,await keyFor(pass
 
 // Only encrypted authorized snapshots go into IndexedDB. Per-tab continuation
 // survives refresh; passwords are never saved. The device cookie alone grants no access.
+
+// Each queued batch has an immutable receipt ID. A lost response can be retried
+// without creating another profile or consuming another physical dose.
+function rebasePending(batches,local,result,role){
+ if(!batches.length)return {data:result.data,pending:null,idMap:result.idMap??{}};
+ const mapping={...result.idMap},nextBatches=structuredClone(batches),occupied=structuredClone(result.data);
+ for(const batch of nextBatches)for(const op of batch.operations){
+  const profile=['mothers','children'].includes(op.type);
+  if(op.originalId!==null)op.originalId=mapping[op.originalId]??op.originalId;
+  if(op.before?.id)op.before.id=mapping[op.before.id]??op.before.id;
+  if(op.before?.patient)op.before.patient=mapping[op.before.patient]??op.before.patient;
+  if(profile&&op.originalId===null){const previous=op.record.id;if(occupied[op.type].some(r=>r.id===previous))op.record.id=nextProfileId(occupied,op.type);mapping[previous]=op.record.id;occupied[op.type].push({id:op.record.id});}
+  else if(op.record.id)op.record.id=mapping[op.record.id]??op.record.id;
+  if(op.record.patient)op.record.patient=mapping[op.record.patient]??op.record.patient;
+ }
+ const fallback=structuredClone(local);for(const type of Object.keys(fallback))for(const record of fallback[type]){if(['mothers','children'].includes(type))record.id=mapping[record.id]??record.id;if(record.patient)record.patient=mapping[record.patient]??record.patient;}
+ let data=fallback;try{data=applyRecordOperations(result.data,nextBatches.flatMap(batch=>batch.operations),{role,allowedIds:[...result.data.mothers,...result.data.children].map(r=>r.id),checkBefore:false}).data;}catch{/* Keep the editable pending copy if the clinic revoked a link or changed a dependency. */}
+ return {data,pending:{batches:nextBatches},idMap:mapping};
+}
+
 export class AccountStore {
- constructor(account,proof=''){this.account=account;this.proof=proof;this.data=emptyData();this.raw=null;this.blocked=false;this.error='';this.message='';this.cacheEnabled=false;this.pending=null;this.baseRevision='initial';this.queue=Promise.resolve();this.closed=false;}
+ constructor(account,proof=''){this.account=account;this.proof=proof;this.data=emptyData();this.catalog=[];this.raw=null;this.blocked=false;this.error='';this.message='';this.cacheEnabled=false;this.pending=null;this.baseRevision='initial';this.queue=Promise.resolve();this.closed=false;}
  static async signIn(username,password){
   username=username.trim().toLowerCase();let row,cacheAvailable=true;
   try{row=await cached(username);}catch{cacheAvailable=false;}
@@ -48,7 +69,7 @@ export class AccountStore {
    const cloud=await api('workspace',{proof:login.proof});
    let previous;
    if(row){previous=await decrypt(row,password);if(row.account.id!==login.account.id)throw new Error('This username belongs to a different account. Contact the clinic before replacing this device copy.');}
-   store.data=cloud.data;store.baseRevision=cloud.revision;
+   store.data=cloud.data;store.catalog=cloud.catalog??[];store.baseRevision=cloud.revision;
    if(previous?.payload.pending&&row.account.role===login.account.role){store.data=previous.payload.data;store.pending=previous.payload.pending;store.baseRevision=previous.payload.baseRevision;}
    if(previous?.payload.pending&&row.account.role!==login.account.role)throw new Error('Your clinic role changed while this device had pending edits. Ask the clinic administrator to review those edits; they have not been uploaded or removed.');
    if(cacheAvailable){store.key=previous?.key??await keyFor(password,store.salt=crypto.getRandomValues(new Uint8Array(16)));store.salt=row?.salt??store.salt;store.raw=row?.generation??null;store.cacheEnabled=true;await store.persist(store.data,store.pending,store.baseRevision);}
@@ -77,6 +98,7 @@ export class AccountStore {
     if(error.status!==0||!previous)throw error;
     store.message=store.pending?'Saved offline · Pending clinic sync':'Offline session restored · Encrypted copy on device';return store;
    }
+   store.catalog=cloud.catalog??[];
    if(!store.pending){if(store.cacheEnabled)await store.persist(cloud.data,null,cloud.revision);store.data=cloud.data;store.baseRevision=cloud.revision;}
    store.message=store.cacheEnabled?'Cloud connected · Encrypted copy on device':'Cloud connected · Online only';
    if(store.pending)await store.sync();return store;
@@ -84,16 +106,27 @@ export class AccountStore {
  }
  async persist(data,pending,baseRevision){
   const iv=crypto.getRandomValues(new Uint8Array(12)),generation=crypto.randomUUID();
-  const cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:aad(this.account)},this.key,new TextEncoder().encode(JSON.stringify({data,pending,baseRevision})));
+  const cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:aad(this.account)},this.key,new TextEncoder().encode(JSON.stringify({data,pending,baseRevision,catalog:this.catalog})));
   if(this.closed)throw new Error('Sign in again before saving.');
   await replace({username:this.account.username,account:this.account,salt:this.salt,iv,cipher,generation},this.raw);this.raw=generation;
  }
  serial(action){const next=this.queue.then(()=>{if(this.closed)throw new Error('Sign in again before continuing.');return action();});this.queue=next.catch(()=>{});return next;}
- async save(type,raw,originalId=null){return this.serial(async()=>{
-  this.requireStaff();const original=originalId?this.data[type].find(r=>r.id===originalId):null;if(originalId&&!original)throw new Error('This record no longer exists. Reload the workspace.');
-  const record=normalize(type,raw,this.data,{original}),next=structuredClone(this.data);if(original)next[type][next[type].findIndex(r=>r.id===originalId)]=record;else next[type].push(record);await this.write(next);return record;
+ async save(type,raw,originalId=null,{before}={}){return this.serial(async()=>{
+  if(type==='inventory')this.requireStaff();
+  if(!Object.hasOwn(this.data,type))throw new Error('Invalid record type.');
+  const original=originalId?this.data[type].find(r=>r.id===originalId):null;if(originalId&&!original)throw new Error('This record no longer exists. Reload the workspace.');
+  const input={...raw};if(!originalId&&!input.id)input.id=['mothers','children'].includes(type)?nextProfileId(this.data,type):crypto.randomUUID();
+  const record=normalize(type,input,this.data,{original,preserveId:true});
+  const operation={type,record:{...input,id:record.id},originalId,before:original?structuredClone(before??original):undefined};
+  const allowedIds=[...this.data.mothers,...this.data.children].map(r=>r.id);
+  const next=applyRecordOperations(this.data,[operation],{role:this.account.role,allowedIds}).data;
+  if(this.pending&&!this.pending.batches){this.requireStaff();await this.write(next);return record;}
+  const batch={id:crypto.randomUUID(),operations:[operation]},pending={batches:[...(this.pending?.batches??[]),batch]};
+  if(pending.batches.length>500)throw new Error('Sync your pending records before adding more changes.');
+  if(!this.cacheEnabled){const result=await api('records',{method:'POST',proof:this.proof,body:{operationId:batch.id,operations:batch.operations}});this.data=result.data;this.catalog=result.catalog??[];this.baseRevision=result.revision;this.message='Saved to clinic cloud';return record;}
+  await this.persist(next,pending,this.baseRevision);this.data=next;this.pending=pending;this.message='Saved offline · Pending clinic sync';await this.syncNow();return record;
  });}
- requireStaff(){if(this.account.role!=='staff')throw new Error('Only authorized health workers can change clinical records.');}
+ requireStaff(){if(this.account.role!=='staff')throw new Error('Vaccine stock and clinic administration are managed by authorized health workers.');}
  commit(data){return this.serial(async()=>{this.requireStaff();await this.write(validateData(data),true);});}
  async write(data,resetLinks=false){
   const operationId=crypto.randomUUID();resetLinks=resetLinks||Boolean(this.pending?.resetLinks);const pending={id:operationId,resetLinks};
@@ -104,6 +137,12 @@ export class AccountStore {
  async syncNow(){
   try{
    if(!this.proof){this.message=this.pending?'Saved offline · Sign in online to sync':'Offline copy · Sign in online to refresh';return;}
+   while(this.pending?.batches?.length){
+    const batch=this.pending.batches[0],result=await api('records',{method:'POST',proof:this.proof,body:{operationId:batch.id,operations:batch.operations}});if(this.closed)return;
+    const rebased=rebasePending(this.pending.batches.slice(1),this.data,result,this.account.role);
+    this.catalog=result.catalog??[];if(this.cacheEnabled)await this.persist(rebased.data,rebased.pending,result.revision);
+    this.data=rebased.data;this.pending=rebased.pending;this.baseRevision=result.revision;this.onRemap?.(rebased.idMap);
+   }
    if(this.pending){const result=await api('workspace',{method:'PUT',proof:this.proof,body:{data:this.data,baseRevision:this.baseRevision,operationId:this.pending.id??this.pending,resetPatientLinks:Boolean(this.pending.resetLinks)}});if(this.closed)return;if(this.cacheEnabled)await this.persist(this.data,null,result.revision);this.baseRevision=result.revision;this.pending=null;}
    this.message=this.cacheEnabled?'Cloud connected · Encrypted copy on device':'Cloud connected · Online only';this.error='';
   }catch(error){this.message=error.status===409?'Conflict · Pending copy preserved':error.status===401||error.status===403?'Sign in online · Pending copy preserved':'Saved offline · Clinic sync unavailable';this.error=error.message;}
@@ -111,7 +150,7 @@ export class AccountStore {
  load({discard=false}={}){return this.serial(async()=>{
   if(this.pending&&!discard)throw new Error('This device has pending changes. Download a backup before choosing to replace them with the clinic copy.');
   if(!this.proof)throw new Error('Sign out and sign in while connected to refresh the clinic copy.');
-  const cloud=await api('workspace',{proof:this.proof});if(this.cacheEnabled)await this.persist(cloud.data,null,cloud.revision);this.data=cloud.data;this.baseRevision=cloud.revision;this.pending=null;this.error='';this.message='Latest clinic copy loaded';return this.data;
+  const cloud=await api('workspace',{proof:this.proof});this.catalog=cloud.catalog??[];if(this.cacheEnabled)await this.persist(cloud.data,null,cloud.revision);this.data=cloud.data;this.baseRevision=cloud.revision;this.pending=null;this.error='';this.message='Latest clinic copy loaded';return this.data;
  });}
  async signOut(){if(this.sessionId)forgetTabSession(this.sessionId);await this.queue;const proof=this.proof;this.close();if(proof)await api('logout',{method:'POST',body:{},proof}).catch(()=>{});}
  close(){if(this.sessionId)forgetTabSession(this.sessionId);this.closed=true;this.proof='';this.key=null;this.data=emptyData();}

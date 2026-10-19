@@ -1,3 +1,20 @@
+# Family records and connected vaccination release — 19 October 2026
+
+Validation used disposable fictional accounts and data on the local Node 24 server. No real patient records were used.
+
+- 41 core/API tests passed, including server-enforced ownership, stock/role restrictions, auto-linked patient profiles, globally unique IDs, record conflicts, atomic last-dose concurrency, batch expiry, receipt retries, correction refunds, and Philippine midnight.
+- 66 general browser assertions passed.
+- 16 presentation assertions passed.
+- 17 account browser assertions passed.
+- 39 family workflow assertions passed: patient edits visible to staff, combined profile histories, compact profile menu, two offline children with linked growth, lost-response retry, clinic dose assignment and stock counts.
+- 26 session browser assertions passed.
+- 49 localization browser assertions passed.
+- Cloudflare redirect/cache regression passed, including legacy recovery without deleting stored data.
+
+Responsive layouts were checked at 320, 390, 768 and 1440 px. Browser automation used Chromium; physical iOS/Safari behavior still needs device testing. Screenshots are in ignored test-output/web/. CI runs these suites with fictional fixtures.
+
+Previous release verification follows.
+
 # Browser edition verification — accounts release
 
 Verified 18 October 2026 on Windows, Node.js 24.19.0 and Chromium 151 via Playwright. Tests used fictional data in a disposable in-memory local clinic and separate browser contexts. No real medical records were uploaded or used in tests.

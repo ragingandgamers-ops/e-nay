@@ -7,10 +7,12 @@ class ValidationError extends Error {
   constructor(field, message) { super(message); this.field = field; }
 }
 const fail = (field, message) => { throw new ValidationError(field, message); };
-const today = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+// Clinic calendar dates use Philippine time on browsers and Cloudflare alike.
+const today = (instant = new Date()) => {
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(instant).map(part=>[part.type,part.value]));
+  return parts.year+'-'+parts.month+'-'+parts.day;
 };
+
 function yearsBefore(date, years) {
   const [y,m,d] = date.split('-').map(Number);
   const last = new Date(Date.UTC(y-years,m,0)).getUTCDate();
@@ -62,7 +64,7 @@ function date(value, field, optional = false) {
 }
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const patientById = (data,id) => [...data.mothers,...data.children].find(x => x.id === id);
-function normalize(type, raw, data, {original = null, historical = false, now = today()} = {}) {
+function normalize(type, raw, data, {original = null, historical = false, preserveId = false, now = today()} = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('', 'Invalid record.');
   let r = {};
   if (type === 'mothers' || type === 'children') {
@@ -88,7 +90,7 @@ function normalize(type, raw, data, {original = null, historical = false, now = 
     }
   } else {
     if (!TYPES.includes(type)) fail('', 'Unknown record type.');
-    r.id = original?.id ?? (historical ? text(raw.id,'id') : uid());
+    r.id = original?.id ?? (historical || preserveId ? text(raw.id,'id') : uid());
     if (type !== 'inventory') {
       r.patient = text(raw.patient,'patient');
       const p = patientById(data,r.patient);
@@ -111,6 +113,11 @@ function normalize(type, raw, data, {original = null, historical = false, now = 
       r.administered = date(raw.administered,'administered',true);
       if (r.administered > now) fail('administered','An administered dose cannot have a future date.');
       r.notes = text(raw.notes,'notes',false,2000);
+      if(raw.batchId)r.batchId=text(raw.batchId,'batchId');
+      if(raw.stockUse){
+        if(typeof raw.stockUse!=='object'||Array.isArray(raw.stockUse))fail('batchId','Invalid vaccine stock allocation.');
+        r.stockUse={batchId:text(raw.stockUse.batchId,'batchId'),date:date(raw.stockUse.date,'administered')};
+      }
     } else if (type === 'growth') {
       r.date = date(raw.date,'date');
       if (r.date > now) fail('date','Measurement date cannot be in the future.');
@@ -137,6 +144,7 @@ function normalize(type, raw, data, {original = null, historical = false, now = 
   const others = data[type].filter(x=>x.id!==original?.id);
   if (others.some(x=>x.id.toUpperCase() === r.id.toUpperCase())) fail('id','This ID already exists. Open the existing profile to edit it.');
   if (!original && data[type].length >= (type==='mothers'||type==='children'?100:5000)) fail('', 'The record limit has been reached. Export a backup before changing records.');
+  if(raw.updatedByRole!==undefined)r.updatedByRole=choice(raw.updatedByRole,'updatedByRole',['patient','staff']);
   return r;
 }
 function validateData(raw, now = today()) {
@@ -210,6 +218,80 @@ function ageMonths(dob, now=today()) {
 const vaccineStatus = (r,now=today()) => r.administered?'Completed':r.scheduled<now?'Overdue':r.scheduled===now?'Due today':'Upcoming';
 const stockStatus = (r,now=today()) => r.expires<now?'Expired':r.stock<=r.threshold?'Low stock':'Available';
 
+
+
+const recordError=(status,message)=>Object.assign(new Error(message),{status});
+const conflict=()=>recordError(409,'This record changed on another device. Your pending changes are preserved. Review or export them before loading the clinic copy.');
+const deny=()=>recordError(403,'You can change only your own family records. Vaccine stock is managed by clinic staff.');
+function nextProfileId(data,type){
+ const prefix=type==='mothers'?'M':'C';
+ for(let n=1;n<=999;n++){const id=prefix+String(n).padStart(3,'0');if(!data[type].some(record=>record.id===id))return id;}
+ throw new ValidationError('id','No profile IDs are available. Contact clinic staff.');
+}
+function canonical(record){return JSON.stringify(record);}
+function useKey(use){return use?.batchId??'';}
+function applyStock(next,previous,record,raw,now){
+ const oldUse=previous?.stockUse;
+ const clinic=raw.stockMode==='clinic'||(raw.stockMode!=='external'&&Boolean(raw.batchId));
+ let batch,newUse;
+ if(clinic){
+  batch=next.inventory.find(item=>item.id===raw.batchId);
+  if(!batch)throw new ValidationError('batchId','Choose an existing vaccine batch, or choose vaccination recorded elsewhere.');
+  if(batch.vaccine!==record.vaccine)throw new ValidationError('vaccine','The vaccine must match the selected inventory batch.');
+  const eventDate=record.administered||record.scheduled;
+  if(batch.expires<eventDate)throw new ValidationError('batchId','This batch expires before the vaccination date. Choose another batch.');
+  if(batch.stock<=0&&useKey(oldUse)!==batch.id)throw new ValidationError('batchId','This vaccine batch has no available doses. Choose another batch.');
+  record.batchId=batch.id;
+  if(record.administered)newUse={batchId:batch.id,date:record.administered};
+ }else delete record.batchId;
+ if(useKey(oldUse)!==useKey(newUse)){
+  if(oldUse){const oldBatch=next.inventory.find(item=>item.id===oldUse.batchId);if(!oldBatch)throw new ValidationError('batchId','The previous stock allocation needs clinic review before this vaccination can be corrected.');if(oldBatch.stock>=100000)throw new ValidationError('stock','Returning this allocation would exceed the stock limit. Review inventory first.');oldBatch.stock++;}
+  if(newUse){if(batch.stock<1)throw new ValidationError('batchId','This vaccine batch has no available doses. Choose another batch.');batch.stock--;}
+ }
+ if(newUse)record.stockUse=newUse;else delete record.stockUse;
+}
+// The server applies these operations to its current clinic copy. Patients never
+// submit a replacement clinic snapshot. New patient profile IDs are allocated
+// globally, and references in subsequent offline operations are remapped together.
+function applyRecordOperations(data,operations,{role,allowedIds=[],allocatePatientIds=false,checkBefore=true,now=today()}={}){
+ if(!['staff','patient'].includes(role))throw deny();
+ if(!Array.isArray(operations)||!operations.length||operations.length>500)throw new ValidationError('','Submit between 1 and 500 record changes at a time.');
+ const next=validateData(data,now),allowed=new Set(allowedIds),idMap={},newLinks=[];
+ for(const operation of operations){
+  if(!operation||!TYPES.includes(operation.type)||!operation.record||typeof operation.record!=='object'||(operation.originalId!==null&&typeof operation.originalId!=='string'))throw new ValidationError('','Invalid record operation.');
+  const type=operation.type,profile=['mothers','children'].includes(type),raw=structuredClone(operation.record);
+  if(role==='patient'&&type==='inventory')throw deny();
+  const originalId=operation.originalId===null?null:(idMap[operation.originalId]??operation.originalId);
+  const previous=originalId?next[type].find(record=>record.id===originalId):null;
+  if(originalId&&!previous)throw conflict();
+  if(previous&&role==='patient'&&!allowed.has(profile?previous.id:previous.patient))throw deny();
+  if(previous&&checkBefore){
+   const before=structuredClone(operation.before);
+   if(before?.id)before.id=idMap[before.id]??before.id;
+   if(before?.patient)before.patient=idMap[before.patient]??before.patient;
+   if(canonical(before)!==canonical(previous))throw conflict();
+  }
+  if(raw.patient)raw.patient=idMap[raw.patient]??raw.patient;
+  if(previous)raw.id=previous.id;
+  if(profile&&!previous&&role==='patient'&&allocatePatientIds){const requested=raw.id;if(typeof requested!=='string'||!(type==='mothers'?/^M\d{3}$/:/^C\d{3}$/).test(requested))throw new ValidationError('id','Invalid profile identifier.');raw.id=nextProfileId(next,type);idMap[requested]=raw.id;}
+  if(!profile&&role==='patient'&&!allowed.has(raw.patient))throw deny();
+  if(!profile&&!previous&&(!/^[a-zA-Z0-9-]{16,100}$/.test(raw.id??'')))throw new ValidationError('id','Invalid record identifier.');
+  if(!previous&&next[type].some(record=>record.id===raw.id))throw new ValidationError('id','This ID already exists. Open the existing profile to edit it.');
+  // Provenance and stock allocations are assigned here, never trusted from a
+  // patient's request. Patient edits do not refund or consume physical stock.
+  raw.updatedByRole=role;
+  if(type==='vaccines'&&role==='patient'){
+   if(previous?.stockUse)raw.stockUse=previous.stockUse;else delete raw.stockUse;
+   if(previous?.batchId)raw.batchId=previous.batchId;else delete raw.batchId;
+  }
+  const record=normalize(type,raw,next,{original:previous,preserveId:true,now});
+  if(type==='vaccines'&&role==='staff')applyStock(next,previous,record,raw,now);
+  if(previous)next[type][next[type].findIndex(item=>item.id===previous.id)]=record;else next[type].push(record);
+  if(profile&&!previous){allowed.add(record.id);if(role==='patient')newLinks.push(record.id);}
+ }
+ return {data:validateData(next,now),idMap,newLinks};
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS accounts (
  id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -233,6 +315,9 @@ CREATE TABLE IF NOT EXISTS sync_operations (
  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, revision TEXT NOT NULL,
  created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS record_sync_maps (
+ operation_id TEXT PRIMARY KEY, map_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS auth_limits (
  bucket TEXT PRIMARY KEY, attempts INTEGER NOT NULL, resets_at INTEGER NOT NULL
 );
@@ -246,6 +331,7 @@ VALUES('clinic','initial','{"mothers":[],"children":[],"visits":[],"vaccines":[]
 
 import {scrypt,randomBytes,createHash,timingSafeEqual} from 'node:crypto';
 import {Buffer} from 'node:buffer';
+
 
 
 
@@ -304,13 +390,14 @@ function staffOnly(account){if(account.role!=='staff')throw new ApiError(403,'Th
 async function workspaceFor(db,account){
  const row=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
  const data=validateData(JSON.parse(row.body));
- if(account.role==='staff')return {revision:row.revision,data,savedAt:row.updated_at};
+ const catalog=[...new Set(data.inventory.map(batch=>batch.vaccine))].sort();
+ if(account.role==='staff')return {revision:row.revision,data,catalog,savedAt:row.updated_at};
  const links=await db.prepare('SELECT patient_id FROM patient_links WHERE account_id=?').bind(account.id).all();
  const allowed=new Set(links.results.map(link=>link.patient_id)),filtered=emptyData();
  filtered.mothers=data.mothers.filter(record=>allowed.has(record.id));
  filtered.children=data.children.filter(record=>allowed.has(record.id));
  for(const type of ['visits','vaccines','growth'])filtered[type]=data[type].filter(record=>allowed.has(record.patient));
- return {revision:row.revision,data:filtered,savedAt:row.updated_at};
+ return {revision:row.revision,data:filtered,catalog,savedAt:row.updated_at};
 }
 async function saveWorkspace(db,account,input){
  staffOnly(account);
@@ -318,6 +405,9 @@ async function saveWorkspace(db,account,input){
  const existing=await db.prepare('SELECT * FROM sync_operations WHERE id=?').bind(input.operationId).first();
  if(existing){if(existing.account_id!==account.id)throw new ApiError(409,'This synchronization identifier is already in use.');return {revision:existing.revision};}
  let data;try{data=validateData(input.data);}catch(error){throw new ApiError(400,error.message);}
+ // Older clients send whole snapshots without newer provenance/stock fields.
+ // Preserve those fields on ordinary saves; reviewed replacements remain explicit.
+ if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];}}
  const revision=crypto.randomUUID(),now=Date.now(),body=JSON.stringify(data);
  if(new TextEncoder().encode(body).length>MAX_BODY-2000)throw new ApiError(413,'The workspace is too large to synchronize. Your previous clinic records are intact.');
  const results=await db.batch([
@@ -331,6 +421,37 @@ async function saveWorkspace(db,account,input){
  if(results[0].meta.changes!==1){const previous=await db.prepare('SELECT * FROM sync_operations WHERE id=?').bind(input.operationId).first();if(previous?.account_id===account.id)return {revision:previous.revision};throw new ApiError(409,'Clinic records changed on another device. Your pending copy is preserved. Review or export it before loading the newer clinic copy.');}
  return {revision,savedAt:now};
 }
+
+async function recordReceipt(db,account,operationId){
+ const receipt=await db.prepare('SELECT * FROM sync_operations WHERE id=?').bind(operationId).first();
+ if(!receipt)return null;
+ if(receipt.account_id!==account.id)throw new ApiError(409,'This synchronization identifier is already in use.');
+ const mapping=await db.prepare('SELECT map_json FROM record_sync_maps WHERE operation_id=?').bind(operationId).first();
+ return {...await workspaceFor(db,account),idMap:JSON.parse(mapping?.map_json??'{}')};
+}
+async function saveRecords(db,account,input){
+ if(typeof input.operationId!=='string'||!/^[a-zA-Z0-9-]{16,80}$/.test(input.operationId))throw new ApiError(400,'The synchronization identifier is invalid.');
+ for(let attempt=0;attempt<3;attempt++){
+  const receipt=await recordReceipt(db,account,input.operationId);if(receipt)return receipt;
+  const current=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
+  const links=await db.prepare('SELECT patient_id FROM patient_links WHERE account_id=?').bind(account.id).all();
+  let applied;try{applied=applyRecordOperations(JSON.parse(current.body),input.operations,{role:account.role,allowedIds:links.results.map(link=>link.patient_id),allocatePatientIds:true});}catch(error){throw new ApiError(error.status??400,error.message);}
+  const body=JSON.stringify(applied.data),revision=crypto.randomUUID(),now=Date.now();
+  if(new TextEncoder().encode(body).length>MAX_BODY-2000)throw new ApiError(413,'The workspace is too large to synchronize. Your previous clinic records are intact.');
+  const condition=" WHERE EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)";
+  const results=await db.batch([
+   db.prepare("UPDATE workspace SET revision=?,body=?,last_operation=?,updated_at=? WHERE id='clinic' AND revision=?").bind(revision,body,input.operationId,now,current.revision),
+   ...applied.newLinks.map(id=>db.prepare('INSERT OR IGNORE INTO patient_links(account_id,patient_id) SELECT ?,?'+condition).bind(account.id,id,input.operationId)),
+   db.prepare('INSERT OR IGNORE INTO sync_operations(id,account_id,revision,created_at) SELECT ?,?,?,?'+condition).bind(input.operationId,account.id,revision,now,input.operationId),
+   db.prepare('INSERT OR IGNORE INTO record_sync_maps(operation_id,map_json) SELECT ?,?'+condition).bind(input.operationId,JSON.stringify(applied.idMap),input.operationId),
+   db.prepare("INSERT OR IGNORE INTO audit_events(id,account_id,action,revision,created_at) SELECT ?,?,'record-sync',?,?"+condition).bind(input.operationId,account.id,revision,now,input.operationId)
+  ]);
+  if(results[0].meta.changes===1)return {...await workspaceFor(db,account),idMap:applied.idMap};
+ }
+ const receipt=await recordReceipt(db,account,input.operationId);if(receipt)return receipt;
+ throw new ApiError(409,'Clinic records are being updated. Your pending changes are preserved. Try syncing again.');
+}
+
 async function api(request,env){
  if(!env.DB)throw new ApiError(503,'The clinic account service is not configured yet.');
  await setup(env.DB);
@@ -346,7 +467,7 @@ async function api(request,env){
   if(await env.DB.prepare('SELECT id FROM accounts WHERE username=?').bind(username).first())throw new ApiError(409,'That username is unavailable.');
   try{await env.DB.prepare("INSERT INTO accounts(id,username,display_name,password_hash,role,created_at) VALUES(?,?,?,?,'patient',?)").bind(crypto.randomUUID(),username,displayName,await passwordHash(password),Date.now()).run();}
   catch(error){if(/UNIQUE/i.test(error.message))throw new ApiError(409,'That username is unavailable.');throw error;}
-  return reply({message:'Your patient account is ready. Your health worker can link your care records.'},201);
+  return reply({message:'Your patient account is ready. Add your own family records or ask your health worker to link existing records.'},201);
  }
  if(path==='/api/login'&&method==='POST'){
   const {username,password}=credentials(await bodyOf(request));
@@ -369,6 +490,7 @@ async function api(request,env){
   await env.DB.prepare('DELETE FROM sessions WHERE proof_hash=?').bind(digest(request.headers.get('X-Enay-Access'))).run();return reply({signedOut:true});
  }
  if(path==='/api/workspace'&&method==='GET')return reply(await workspaceFor(env.DB,account));
+ if(path==='/api/records'&&method==='POST')return reply(await saveRecords(env.DB,account,await bodyOf(request)));
  if(path==='/api/workspace'&&method==='PUT')return reply(await saveWorkspace(env.DB,account,await bodyOf(request)));
  if(path==='/api/inventory'){staffOnly(account);if(method==='GET')return reply({inventory:(await workspaceFor(env.DB,account)).data.inventory});}
  if(path==='/api/accounts'&&method==='GET'){
@@ -381,7 +503,14 @@ async function api(request,env){
   if(!target)throw new ApiError(400,'Choose an active patient account.');
   const clinic=await workspaceFor(env.DB,account),validIds=new Set([...clinic.data.mothers,...clinic.data.children].map(r=>r.id));
   if(!Array.isArray(input.patientIds)||input.patientIds.length>100||new Set(input.patientIds).size!==input.patientIds.length||input.patientIds.some(id=>!validIds.has(id)))throw new ApiError(400,'Choose existing maternal or child profiles.');
-  await env.DB.batch([env.DB.prepare('DELETE FROM patient_links WHERE account_id=?').bind(target.id),...input.patientIds.map(id=>env.DB.prepare('INSERT INTO patient_links(account_id,patient_id) VALUES(?,?)').bind(target.id,id)),env.DB.prepare("INSERT INTO audit_events(id,account_id,action,created_at) VALUES(?,?,'patient-link-change',?)").bind(crypto.randomUUID(),account.id,Date.now())]);
+  const linkOperation=crypto.randomUUID(),linkRevision=crypto.randomUUID(),linkNow=Date.now(),condition=" AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)";
+  const changed=await env.DB.batch([
+   env.DB.prepare("UPDATE workspace SET revision=?,last_operation=?,updated_at=? WHERE id='clinic' AND revision=?").bind(linkRevision,linkOperation,linkNow,clinic.revision),
+   env.DB.prepare('DELETE FROM patient_links WHERE account_id=?'+condition).bind(target.id,linkOperation),
+   ...input.patientIds.map(id=>env.DB.prepare("INSERT INTO patient_links(account_id,patient_id) SELECT ?,? WHERE EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(target.id,id,linkOperation)),
+   env.DB.prepare("INSERT INTO audit_events(id,account_id,action,created_at) SELECT ?,?,'patient-link-change',? WHERE EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(linkOperation,account.id,linkNow,linkOperation)
+  ]);
+  if(changed[0].meta.changes!==1)throw new ApiError(409,'Clinic records changed. Refresh patient access and review these links again.');
   return reply({linked:true});
  }
  throw new ApiError(404,'This operation is not available.');

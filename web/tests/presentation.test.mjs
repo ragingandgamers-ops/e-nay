@@ -53,7 +53,7 @@ try{
  await embedded.addInitScript(()=>Object.defineProperty(navigator,'serviceWorker',{value:undefined,configurable:true}));
  const mobile=await makePage(embedded);
  await mobile.goto(base+'#workspace');
- await signIn(mobile);await mobile.getByText('Offline unavailable here',{exact:true}).waitFor();
+ await signIn(mobile);await mobile.waitForFunction(()=>document.querySelector('#offline-status').textContent==='Offline unavailable here');
  check(await mobile.locator('#offline-guidance').isVisible(),'Unsupported browser receives actionable offline guidance');
  await mobile.getByRole('button',{name:'How to open & install',exact:true}).click();
  check(await mobile.locator('#info-body').getByText(/Open this site in Safari/).isVisible(),'Installation guidance explains Safari and Add to Home Screen');

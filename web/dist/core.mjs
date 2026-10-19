@@ -6,10 +6,12 @@ export class ValidationError extends Error {
   constructor(field, message) { super(message); this.field = field; }
 }
 const fail = (field, message) => { throw new ValidationError(field, message); };
-export const today = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+// Clinic calendar dates use Philippine time on browsers and Cloudflare alike.
+export const today = (instant = new Date()) => {
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(instant).map(part=>[part.type,part.value]));
+  return parts.year+'-'+parts.month+'-'+parts.day;
 };
+
 export function yearsBefore(date, years) {
   const [y,m,d] = date.split('-').map(Number);
   const last = new Date(Date.UTC(y-years,m,0)).getUTCDate();
@@ -61,7 +63,7 @@ export function date(value, field, optional = false) {
 }
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 export const patientById = (data,id) => [...data.mothers,...data.children].find(x => x.id === id);
-export function normalize(type, raw, data, {original = null, historical = false, now = today()} = {}) {
+export function normalize(type, raw, data, {original = null, historical = false, preserveId = false, now = today()} = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('', 'Invalid record.');
   let r = {};
   if (type === 'mothers' || type === 'children') {
@@ -87,7 +89,7 @@ export function normalize(type, raw, data, {original = null, historical = false,
     }
   } else {
     if (!TYPES.includes(type)) fail('', 'Unknown record type.');
-    r.id = original?.id ?? (historical ? text(raw.id,'id') : uid());
+    r.id = original?.id ?? (historical || preserveId ? text(raw.id,'id') : uid());
     if (type !== 'inventory') {
       r.patient = text(raw.patient,'patient');
       const p = patientById(data,r.patient);
@@ -110,6 +112,11 @@ export function normalize(type, raw, data, {original = null, historical = false,
       r.administered = date(raw.administered,'administered',true);
       if (r.administered > now) fail('administered','An administered dose cannot have a future date.');
       r.notes = text(raw.notes,'notes',false,2000);
+      if(raw.batchId)r.batchId=text(raw.batchId,'batchId');
+      if(raw.stockUse){
+        if(typeof raw.stockUse!=='object'||Array.isArray(raw.stockUse))fail('batchId','Invalid vaccine stock allocation.');
+        r.stockUse={batchId:text(raw.stockUse.batchId,'batchId'),date:date(raw.stockUse.date,'administered')};
+      }
     } else if (type === 'growth') {
       r.date = date(raw.date,'date');
       if (r.date > now) fail('date','Measurement date cannot be in the future.');
@@ -136,6 +143,7 @@ export function normalize(type, raw, data, {original = null, historical = false,
   const others = data[type].filter(x=>x.id!==original?.id);
   if (others.some(x=>x.id.toUpperCase() === r.id.toUpperCase())) fail('id','This ID already exists. Open the existing profile to edit it.');
   if (!original && data[type].length >= (type==='mothers'||type==='children'?100:5000)) fail('', 'The record limit has been reached. Export a backup before changing records.');
+  if(raw.updatedByRole!==undefined)r.updatedByRole=choice(raw.updatedByRole,'updatedByRole',['patient','staff']);
   return r;
 }
 export function validateData(raw, now = today()) {

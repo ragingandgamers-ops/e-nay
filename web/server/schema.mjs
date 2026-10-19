@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS sync_operations (
  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, revision TEXT NOT NULL,
  created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS record_sync_maps (
+ operation_id TEXT PRIMARY KEY, map_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS auth_limits (
  bucket TEXT PRIMARY KEY, attempts INTEGER NOT NULL, resets_at INTEGER NOT NULL
 );
