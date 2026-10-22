@@ -32,6 +32,9 @@ export function createPatientDirectory(accounts,profiles,save){
  }
  function updateAccounts(){
   if(!root?.isConnected)return;
+  // Native details toggles are queued. Read the current DOM before replacing
+  // account rows so an immediate search cannot resurrect an old open state.
+  for(const panel of root.querySelectorAll('[data-access-account]'))states.get(panel.dataset.accessAccount).open=panel.open;
   const view=pageItems(filteredAccounts(),page);page=view.page;
   root.querySelector('.access-account-results').innerHTML=ui`<p class="record-count">${label('Showing {start}–{end} of {total} accounts',{start:view.start,end:view.end,total:view.total})}</p>${view.items.map(card).join('')||ui`<section class="panel"><h2>${label(accounts.length?'No matching accounts.':'No patient accounts yet.')}</h2><p>${label(accounts.length?'Try another name, username, or filter.':'Patients and guardians can register from the sign-in screen. Verify their identity, then link their care profiles here.')}</p></section>`}${pagination(view,'accounts')}`;
  }
