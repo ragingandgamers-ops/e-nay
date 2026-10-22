@@ -12,6 +12,6 @@ Design verification covers actual computed palette/font loading, readable primar
 
 ## Language and Philippine context
 
-The English interface keeps Filipino greetings and short supportive phrases. The English / Filipino control is available on every screen and inside dialogs. The Filipino interface uses familiar local wording and retains common borrowed terms such as account, offline, backup and health worker. Longer text wraps on mobile; medical units and IDs remain canonical. Literal UI annotations allow in-place language changes without rebuilding forms or translating personal data.
+The English interface keeps Filipino greetings and short supportive phrases. Public and sign-in pages offer an English / Filipino control. Inside the workspace, language and appearance settings live in My profile, leaving the main header and record dialogs clear. The Filipino interface uses familiar local wording and retains common borrowed terms such as account, offline, backup and health worker. Longer text wraps on mobile; medical units and IDs remain canonical. Literal UI annotations allow in-place language changes without rebuilding forms or translating personal data.
 
 Real photographs documented as taken in Manila and Cagayan Valley replace the former page photographs. ASSETS.md records photographer credits, licenses and processing. The versioned share card uses the same new Manila photograph. No AI-generated images are used.

@@ -7,7 +7,8 @@ const {chromium}=createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE||'
 const base=process.env.ENAY_URL||'http://127.0.0.1:8765/';
 const browser=await chromium.launch({headless:true,...(process.env.BROWSER_BIN?{executablePath:process.env.BROWSER_BIN}:{})});
 let checks=0;const check=(condition,message)=>{assert.ok(condition,message);checks++;};
-const language=async(page,value)=>{const inside=page.locator(`dialog[open] [data-language="${value}"]`);if(await inside.count()){await inside.click();return;}const bar=page.locator(`.language-bar [data-language="${value}"]`);if(await bar.isVisible())await bar.click();else{await page.locator('#open-profile').click();await page.locator(`#profile-dialog [data-language="${value}"]`).click();await page.locator('#close-profile').click();}};
+// While a record dialog is open, test cross-tab language updates through the public preferences.
+const language=async(page,value)=>{if(await page.locator('dialog[open]').count()){const controls=await page.context().newPage();try{await controls.goto(base+'#home');await controls.locator('.language-bar [data-language="'+value+'"]').click();await page.waitForFunction(value=>document.documentElement.lang===value,value);}finally{await controls.close();}return;}const bar=page.locator('.language-bar [data-language="'+value+'"]');if(await bar.isVisible())await bar.click();else{await page.locator('#open-profile').click();await page.locator('#profile-dialog [data-language="'+value+'"]').click();await page.locator('#close-profile').click();}};
 const route=async(page,value)=>{await page.evaluate(value=>location.hash='workspace'+(value?'/'+value:''),value);await page.locator('#page-content h1').waitFor();};
 try{
  await resetClinic(base);await mkdir('test-output/web',{recursive:true});
