@@ -5,7 +5,7 @@
   "type": "module",
   "description": "A buildless, offline-capable maternal and child care workspace.",
   "scripts": {
-    "test": "node --test tests/core.test.mjs tests/dashboard.test.mjs",
+    "test": "node --test tests/core.test.mjs tests/dashboard.test.mjs tests/lists.test.mjs",
     "test:browser": "node tests/browser.test.mjs",
     "test:hosting": "node tests/service-worker.test.mjs",
     "test:presentation": "node tests/presentation.test.mjs",

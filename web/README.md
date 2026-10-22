@@ -112,3 +112,9 @@ The suites cover bilingual navigation and forms, literal record preservation, of
 ## Visual design
 
 The 19 October revision applies the Asklepios reference with the supplied Hygieia Red palette, local Plus Jakarta Sans typography, rounded components and outline navigation icons. [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) records tokens, attribution, font licensing and component conventions. The font is cached with the public shell for offline use. No AI-generated imagery is used.
+
+## Browsing and capacity
+
+Patient access is a searchable, sortable directory of collapsed accounts, with 10 accounts per page. Profile choices are created when an account is expanded; searches, filters, pagination and collapse preserve its selections until Save patient access. These draft selections stay in the current view only and grant no access until saved. Family and other record tables sort before pagination, show 10 rows per page, and search all authorized records. Maternal and child lists include status and barangay filters. Patient views still contain only their authorized family records.
+
+These are browsing improvements, not a storage-capacity increase. The current validators allow 100 maternal profiles, 100 child profiles, 200 clinic guides and 5,000 entries per other record type; the API also rejects workspace payloads near 1.5 MB. Staff account listing and clinic synchronization currently fetch complete authorized snapshots. Larger clinic deployments need indexed record tables, server-side search and cursor pagination, and incremental authorized offline synchronization before these limits can safely be raised. Never delete care history just to make a list shorter.

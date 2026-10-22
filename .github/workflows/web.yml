@@ -18,7 +18,7 @@ jobs:
           node web/server/build-worker.mjs
           git diff --exit-code -- web/dist/_worker.js
       - name: Core validation and recovery tests
-        run: node --test web/tests/core.test.mjs web/tests/accounts.test.mjs web/tests/dashboard.test.mjs
+        run: node --test web/tests/core.test.mjs web/tests/accounts.test.mjs web/tests/dashboard.test.mjs web/tests/lists.test.mjs
       - name: Browser test dependencies
         working-directory: web
         run: |
@@ -49,6 +49,7 @@ jobs:
           node web/tests/vaccination-request-browser.test.mjs
           node web/tests/care-guides-browser.test.mjs
           node web/tests/usability-browser.test.mjs
+          node web/tests/directory-browser.test.mjs
           node web/tests/session-browser.test.mjs
           node web/tests/language-browser.test.mjs
       - name: Cloudflare redirects and offline cache upgrades
