@@ -4,6 +4,12 @@ import {KEY,LocalStore,emptyData,normalize,parseText,toText,readEnvelope,envelop
 const now=today();
 const mother=(id='M001')=>({id,name:'Ana McDonald',age:'25',edd:now,status:'active'});
 const child=(id='C001')=>({id,name:'José Dela Cruz',gender:'Male',dob:now,motherName:'Ana McDonald',status:'Active'});
+test('child relationships use a maternal ID, preserve legacy names, and support a child-only authorized copy',()=>{
+ const d=emptyData();d.mothers=[normalize('mothers',mother(),d),normalize('mothers',mother('M002'),d)];
+ const r=normalize('children',{...child(),motherId:'m002',motherName:'Wrong text'},d);assert.equal(r.motherId,'M002');assert.equal(r.motherName,'Ana McDonald');
+ d.children=[r];const backup=readEnvelope(JSON.stringify(envelope(d))).data;assert.equal(backup.children[0].motherId,'M002');const childOnly=emptyData();childOnly.children=[r];assert.equal(readEnvelope(JSON.stringify(envelope(childOnly))).data.children[0].motherName,'Ana McDonald');
+ const legacy=normalize('children',child('C002'),d);assert.equal(legacy.motherId,undefined);for(const motherId of ['C001','M01','M0001'])assert.throws(()=>normalize('children',{...child('C002'),motherId},d));
+});
 function memory(initial=null){let raw=initial;return {getItem:()=>raw,setItem(k,v){raw=v;},raw:()=>raw};}
 function saved(){const storage=memory(),store=new LocalStore(storage);store.load();store.save('mothers',mother());return {store,storage};}
 test('normalizes ID and whitespace while preserving legitimate name capitalization',()=>{

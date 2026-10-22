@@ -42,11 +42,13 @@ function rebasePending(batches,local,result,role){
   if(op.originalId!==null)op.originalId=mapping[op.originalId]??op.originalId;
   if(op.before?.id)op.before.id=mapping[op.before.id]??op.before.id;
   if(op.before?.patient)op.before.patient=mapping[op.before.patient]??op.before.patient;
+   if(op.before?.motherId)op.before.motherId=mapping[op.before.motherId]??op.before.motherId;
   if(profile&&op.originalId===null){const previous=op.record.id;if(occupied[op.type].some(r=>r.id===previous))op.record.id=nextProfileId(occupied,op.type);mapping[previous]=op.record.id;occupied[op.type].push({id:op.record.id});}
   else if(op.record.id)op.record.id=mapping[op.record.id]??op.record.id;
   if(op.record.patient)op.record.patient=mapping[op.record.patient]??op.record.patient;
+   if(op.record.motherId)op.record.motherId=mapping[op.record.motherId]??op.record.motherId;
  }
- const fallback=structuredClone(local);for(const type of Object.keys(fallback))for(const record of fallback[type]){if(['mothers','children'].includes(type))record.id=mapping[record.id]??record.id;if(record.patient)record.patient=mapping[record.patient]??record.patient;}
+  const fallback=structuredClone(local);for(const type of Object.keys(fallback))for(const record of fallback[type]){if(['mothers','children'].includes(type))record.id=mapping[record.id]??record.id;if(record.patient)record.patient=mapping[record.patient]??record.patient;if(record.motherId)record.motherId=mapping[record.motherId]??record.motherId;}
  let data=fallback;try{data=applyRecordOperations(result.data,nextBatches.flatMap(batch=>batch.operations),{role,allowedIds:[...result.data.mothers,...result.data.children].map(r=>r.id),checkBefore:false}).data;}catch{/* Keep the editable pending copy if the clinic revoked a link or changed a dependency. */}
  return {data,pending:{batches:nextBatches},idMap:mapping};
 }

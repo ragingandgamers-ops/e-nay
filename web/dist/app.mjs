@@ -1,6 +1,7 @@
 import {t,label,ui,markup,setText,initLanguage} from './language.mjs';
 import {KEY,TYPES,GUIDE_CATEGORIES,today,yearsBefore,date,emptyData,envelope,readEnvelope,parseText,toText,patientById,ageMonths,vaccineStatus,vaccinationNeedsReview,stockStatus} from './core.mjs';
 import {clinicGuideResults,clinicGuideReader} from './care-guides.mjs';
+import {renderStaffDashboard,renderClinicTaskQueue,taskTitle} from './dashboard-ui.mjs';
 import {icon} from './icons.mjs';
 import {startMotion,animateWorkspace} from './motion.mjs';
 import {setupAccounts,patientAccess,saveLinks} from './auth-ui.mjs';
@@ -11,14 +12,14 @@ const FLOWER=markup("<svg class=\"flower-mark\" viewBox=\"0 0 100 100\" fill=\"n
 const offlineSupported=Boolean(navigator.serviceWorker?.register);
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=d=>d?label('{date}',{date:{date:d,format:'short'}}):'—';
-const titles={overview:'Your clinic, at a glance.',mothers:'Mothers’ records',children:'Children’s records',visits:'Visits & notes',vaccines:'Vaccinations',growth:'Child growth',inventory:'Vaccine inventory',guides:'Care guides',backup:'Data & backup',access:'Patient access'};
+const titles={overview:'Your clinic, at a glance.',mothers:'Mothers’ records',children:'Children’s records',visits:'Visits & notes',vaccines:'Vaccinations',growth:'Child growth',inventory:'Vaccine inventory',guides:'Care guides',backup:'Data & backup',access:'Patient access',tasks:'Clinic tasks'};
 const singles={mothers:'maternal profile',children:'child profile',visits:'visit',vaccines:'vaccination',growth:'measurement',inventory:'vaccine batch',guides:'clinic guide'};
 const descriptions={mothers:'Every mother, a story worth keeping close.',children:'Small beginnings. A growing care story.',visits:'Checkups, symptoms, food intake, and the details that matter.',vaccines:'Vaccination schedules and history, connected to each family record.',growth:'Measurements over time, with your own assessment notes.',inventory:'Batch-level stock, low-stock thresholds, and expiration dates.'};
 let store=null;
 const staff=()=>store?.account.role==='staff';
 const accountUI=setupAccounts(next=>{store=next;store.onRemap=reconcileProfileIds;route();window.scrollTo(0,0);});
 let page='overview',subpage='records',profileId=null,query='',filter='All',editing=null,importStage=null,installEvent=null,toastTimer,offlineReady=false;
-let lastFocus=null,infoLastFocus=null,formBaseline='',vaccinationRefreshAt=0,readingGuideId=null,readingGuidePreview=null;
+let lastFocus=null,infoLastFocus=null,formBaseline='',vaccinationRefreshAt=0,readingGuideId=null,readingGuidePreview=null,taskKind='requests';
 const data=()=>store?.data??emptyData();
 
 function reconcileProfileIds(mapping){
@@ -27,8 +28,10 @@ function reconcileProfileIds(mapping){
  if(editing.id&&mapping[editing.id]){editing.id=mapping[editing.id];if($('#field-id'))$('#field-id').value=editing.id;}
  if(editing.before?.id)editing.before.id=mapping[editing.before.id]??editing.before.id;
  if(editing.before?.patient)editing.before.patient=mapping[editing.before.patient]??editing.before.patient;
+  if(editing.before?.motherId)editing.before.motherId=mapping[editing.before.motherId]??editing.before.motherId;
  const selector=$('#field-patient');if(selector)for(const option of selector.options){const previous=option.value;if(mapping[previous]&&mapping[previous]!==previous){option.value=mapping[previous];option.textContent=option.textContent.replace(new RegExp(previous+'$'),mapping[previous]);}}
- if(formBaseline){const baseline=JSON.parse(formBaseline);if(baseline.patient)baseline.patient=mapping[baseline.patient]??baseline.patient;if(baseline.id)baseline.id=mapping[baseline.id]??baseline.id;formBaseline=JSON.stringify(baseline);}
+  const motherSelector=$('#field-motherId');if(motherSelector)for(const option of motherSelector.options){const previous=option.value;if(mapping[previous]&&mapping[previous]!==previous){option.value=mapping[previous];option.textContent=option.textContent.replace(new RegExp(previous+'$'),mapping[previous]);}}
+  if(formBaseline){const baseline=JSON.parse(formBaseline);if(baseline.patient)baseline.patient=mapping[baseline.patient]??baseline.patient;if(baseline.motherId)baseline.motherId=mapping[baseline.motherId]??baseline.motherId;if(baseline.id)baseline.id=mapping[baseline.id]??baseline.id;formBaseline=JSON.stringify(baseline);}
 }
 $('.skip-link').addEventListener('click',e=>{e.preventDefault();const target=!$('#auth-view').hidden?$('#auth-main'):$('#workspace-view').hidden?$('#main'):$('#workspace-main');target.tabIndex=-1;target.focus();});
 function toast(message){clearTimeout(toastTimer);setText($('#toast'),message);$('#toast').hidden=false;toastTimer=setTimeout(()=>$('#toast').hidden=true,6500);}
@@ -54,22 +57,17 @@ function table(headers,rows){return ui`<div class="table-wrap"><table><thead><tr
 function empty(type,searching=false){return ui`<div class="empty-state"><span class="empty-mark" aria-hidden="true">${type==='children'?FLOWER:'♡'}</span><h2>${label(searching?'No matching records.':type==='mothers'?'A place for every mother.':type==='children'?'A place for every little one.':'A place for every care detail.')}</h2><p>${searching?label('Try another name, ID, or filter.'):label('Your {section} will appear here. Start with a {record}.',{section:{ui:titles[type]},record:{ui:singles[type]}})}</p>${searching?markup('<button class="button secondary" id="clear-search">Clear filters</button>'):addButton(type)}</div>`;}
 function renderOverview(){
  if(!staff())return renderPatientOverview();
- const d=data(),now=today();
- const due=d.vaccines.filter(r=>!r.administered&&isApprovedVaccination(r)).sort((a,b)=>a.scheduled.localeCompare(b.scheduled));
- const overdue=due.filter(r=>r.scheduled<now), low=d.inventory.filter(r=>stockStatus(r)!=='Available');
- const follow=d.growth.filter(r=>r.assessment==='Follow-up needed');
- const recent=[...d.visits].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4);
- return heading(titles.overview,'For the people you know, and the community you care for.',addButton('mothers','Add a profile'))+requestSummary()+
- ui`<div class="workspace-welcome"><div><h2><span lang="fil">Magandang araw,</span><br><em>ka-barangay.</em></h2><p>${label('{date} · {place}',{date:{date:today(),format:'long'},place:{ui:'Shared clinic workspace'}})}</p></div><span class="welcome-flower" aria-hidden="true">${FLOWER}</span></div><div class="metrics"><div class="metric"><span class="metric-icon">${icon('mothers')}</span><b>${d.mothers.length}</b><span>Maternal profiles</span><small>Registered with the clinic</small></div><div class="metric"><span class="metric-icon">${icon('children')}</span><b>${d.children.length}</b><span>Child profiles</span><small>Every little milestone</small></div><div class="metric"><span class="metric-icon">${icon('vaccines')}</span><b>${overdue.length}</b><span>Overdue vaccinations</span><small>Needs a staff follow-up</small></div><div class="metric"><span class="metric-icon">${icon('inventory')}</span><b>${low.length}</b><span>Stock alerts</span><small>Low or expired batches</small></div></div><div class="workspace-columns"><section class="panel"><h2>The next care moments</h2>${due.slice(0,4).map(r=>ui`<a href="#workspace/vaccines" class="action-row"><div>${escape(patientLabel(r.patient))}<small>${escape(r.vaccine)} · ${escape(r.dose)} · ${fmt(r.scheduled)}</small></div>${badge(vaccineStatus(r))}</a>`).join('')||markup('<p>No pending vaccinations yet. Add staff-confirmed dates in Vaccinations.</p>')}<div class="button-stack"><a class="button secondary" href="#workspace/vaccines">View vaccinations ↗</a></div></section><section class="panel"><h2>A clear view of today</h2><a class="action-row" href="#workspace/visits"><div>Care notes<small>Checkups, symptoms & food records</small></div><span>${d.visits.length}</span></a><a class="action-row" href="#workspace/growth"><div>Growth follow-up<small>Staff-marked records for review</small></div><span>${follow.length}</span></a><a class="action-row" href="#workspace/inventory"><div>Vaccine stock alerts<small>Low stock or expired batches</small></div><span>${low.length}</span></a><a class="action-row" href="#workspace/backup"><div>Keep a copy close<small>Download a complete device backup</small></div><span>↗</span></a></section></div><section class="panel" style="margin-top:26px"><h2>Recent visits</h2>${recent.map(r=>ui`<div class="action-row"><div>${escape(patientLabel(r.patient))}<small>${fmt(r.date)} · ${escape(r.notes.slice(0,100))}</small></div>${editButton('visits',r.id)}</div>`).join('')||markup('<p>Your latest checkups and care notes will appear here.</p>')}<div class="button-stack">${addButton('visits','Record a visit')}</div></section><p class="data-note">Staff changes synchronize to the clinic cloud. Pending offline edits are marked above. Patient-created records appear here after sync. Patients see their own family profiles and records linked by the clinic.</p>`;
+ return heading(titles.overview,'Start with the records that need a decision or follow-up.',addButton('mothers','Add a profile'))+renderStaffDashboard(data());
 }
 function rowCells(type,r){
  if(type==='mothers')return [ui`<strong><a class="profile-name-link" href="#workspace/${type}/${escape(r.id)}">${escape(r.name)}</a></strong>${provenance(r)}<small>${escape(r.id)}${r.barangay?' · '+escape(r.barangay):''}</small>`,`${r.age} ${label('years')}`,fmt(r.edd),badge(r.status),editButton(type,r.id)];
- if(type==='children')return [ui`<strong><a class="profile-name-link" href="#workspace/${type}/${escape(r.id)}">${escape(r.name)}</a></strong>${provenance(r)}<small>${escape(r.id)} · ${label(r.gender)}</small>`,`${fmt(r.dob)}<small>${ageMonths(r.dob)} ${label('months')}</small>`,escape(r.motherName),badge(r.status),editButton(type,r.id)];
+  if(type==='children')return [ui`<strong><a class="profile-name-link" href="#workspace/${type}/${escape(r.id)}">${escape(r.name)}</a></strong>${provenance(r)}<small>${escape(r.id)} · ${label(r.gender)}</small>`,`${fmt(r.dob)}<small>${ageMonths(r.dob)} ${label('months')}</small>`,motherReference(r),badge(r.status),editButton(type,r.id)];
  if(type==='visits')return [ui`<strong>${escape(patientLabel(r.patient))}</strong>${provenance(r)}<small>${fmt(r.date)}</small>`,`${escape(r.notes.slice(0,110))}${r.notes.length>110?'…':''}`,r.followUp?fmt(r.followUp):'—',editButton(type,r.id)];
  if(type==='vaccines')return [ui`<strong>${escape(patientLabel(r.patient))}</strong><small>${escape(r.vaccine)} · ${escape(r.dose)}</small>${provenance(r)}${r.stockUse?ui`<small>${label(r.stockUse.kind==='reserved'?(hasPendingVaccination(r.id)?'Reservation awaiting sync':'1 dose reserved'):'1 clinic dose used')}</small>`:''}`,fmt(r.scheduled),r.administered?fmt(r.administered):'—',ui`${r.approvalStatus==='Approved'&&!r.administered&&!hasPendingVaccination(r.id)&&['Overdue','Due today'].includes(vaccineStatus(r))?badge('Approved'):''}${badge(displayVaccineStatus(r))}`,editButton(type,r.id)];
  if(type==='growth')return [ui`<strong>${escape(patientLabel(r.patient))}</strong>${provenance(r)}<small>${fmt(r.date)}</small>`,`${r.weight} kg`,`${r.height} cm`,badge(r.assessment),editButton(type,r.id)];
  return [ui`<strong>${escape(r.vaccine)}</strong><small>${label('Batch')} ${escape(r.batch)}</small>`,`${r.stock} ${label('doses')}<small>${label('Alert at {count} or fewer',{count:r.threshold})}</small><small>${label('{count} reserved',{count:data().vaccines.filter(v=>v.stockUse?.batchId===r.id&&v.stockUse.kind==='reserved').length})}</small>`,fmt(r.expires),badge(stockStatus(r)),ui`<div class="row-actions">${editButton(type,r.id)}${r.stock>0&&r.expires>=today()?ui`<button class="row-button" data-schedule-batch="${escape(r.id)}">Assign dose ↗</button>`:''}</div>`];
 }
+function motherReference(child){const mother=data().mothers.find(m=>m.id===child.motherId);return mother?ui`<a class="mother-profile-link" href="#workspace/mothers/${escape(mother.id)}">${escape(mother.name)} · ${escape(mother.id)} ↗</a>`:escape(child.motherName);}
 const headers={mothers:['Mother','Age','Expected delivery','Status','Actions'],children:['Child','Date of birth','Mother','Status','Actions'],visits:['Patient','Visit notes','Follow-up','Actions'],vaccines:['Patient & vaccine','Scheduled','Administered','Status','Actions'],growth:['Child','Weight','Length / height','Assessment','Actions'],inventory:['Vaccine & batch','Stock','Expiration','Status','Actions']};
 function recordStatus(type,r){return type==='vaccines'?vaccineStatus(r):type==='inventory'?stockStatus(r):type==='growth'?r.assessment:r.status??'';}
 const effectiveType=()=>['mothers','children'].includes(page)&&subpage!=='records'?subpage:page;
@@ -132,16 +130,17 @@ function renderFamilyRecords(){
  result+=ui`<nav class="record-tabs" aria-label="Record sections">${tabs.map(([key,title])=>ui`<a href="${base}${key==='records'?'':'/'+key}" ${subpage===key?'aria-current="page"':''}>${label(title)}</a>`).join('')}</nav>`;
  if(subpage!=='records')return result+renderRecords(subpage,false);
  if(!profile)return result+renderRecords(page,false).replace(ui`<div class="section-actions">${addButton(page)}</div>`,'');
- const details=page==='mothers'?[['Age',profile.age+' '+t('years')],['Expected delivery',fmt(profile.edd)],['Status',badge(profile.status)],['Contact number',escape(profile.contact||'—')],['Barangay / location',escape(profile.barangay||'—')]]:[['Date of birth',fmt(profile.dob)],['Sex recorded at birth',label(profile.gender)],['Mother’s name',escape(profile.motherName)],['Status',badge(profile.status)],['Contact number',escape(profile.contact||'—')],['Barangay / location',escape(profile.barangay||'—')]];
+ const details=page==='mothers'?[['Age',profile.age+' '+t('years')],['Expected delivery',fmt(profile.edd)],['Status',badge(profile.status)],['Contact number',escape(profile.contact||'—')],['Barangay / location',escape(profile.barangay||'—')]]:[['Date of birth',fmt(profile.dob)],['Sex recorded at birth',label(profile.gender)],['Mother’s name',motherReference(profile)],['Status',badge(profile.status)],['Contact number',escape(profile.contact||'—')],['Barangay / location',escape(profile.barangay||'—')]];
  result+=ui`<section class="panel"><dl class="patient-details">${details.map(([title,value])=>ui`<div><dt>${label(title)}</dt><dd>${value}</dd></div>`).join('')}</dl>${provenance(profile)}<div class="record-shortcuts">${addButton('visits','Add checkup note')}${page==='children'?addButton('growth','Add measurement'):''}${addButton('vaccines','Add vaccination')}</div></section>`;
- const recent=data().visits.filter(r=>r.patient===profile.id).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
+ if(page==='mothers'){const children=data().children.filter(c=>c.motherId===profile.id);result+=ui`<section class="panel linked-children"><h2>Children linked to this profile</h2>${children.map(c=>ui`<a class="action-row" href="#workspace/children/${escape(c.id)}"><strong>${escape(c.name)}</strong><span>${escape(c.id)} ↗</span></a>`).join('')||markup('<p>No child profiles are linked yet.</p>')}<div class="button-stack">${addButton('children','Add child profile')}</div></section>`;}
+  const recent=data().visits.filter(r=>r.patient===profile.id).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
  result+=ui`<section class="panel" style="margin-top:24px"><h2>Latest checkups & notes</h2>${recent.map(r=>ui`<div class="action-row"><div>${fmt(r.date)}<small>${escape(r.notes.slice(0,100))}</small>${provenance(r)}</div>${editButton('visits',r.id)}</div>`).join('')||markup('<p>No checkup notes yet. Add a note to keep this care history together.</p>')}</section>`;
  return result;
 }
 
 function render(){
- updateStorageNotice();$('#page-content').innerHTML=page==='access'?heading('Patient access','Link verified patient accounts to their own care profiles.')+markup('<p id="access-loading">Loading patient accounts…</p>'):page==='overview'?renderOverview():page==='backup'?renderBackup():page==='guides'?renderGuides():[ 'mothers','children'].includes(page)?renderFamilyRecords():renderRecords(page);
- $('#workspace-nav').querySelectorAll('a').forEach(a=>{if(a.dataset.page===page)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
+ updateStorageNotice();$('#page-content').innerHTML=page==='access'?heading('Patient access','Link verified patient accounts to their own care profiles.')+markup('<p id="access-loading">Loading patient accounts…</p>'):page==='overview'?renderOverview():page==='backup'?renderBackup():page==='guides'?renderGuides():page==='tasks'?renderClinicTaskQueue(data(),taskKind):[ 'mothers','children'].includes(page)?renderFamilyRecords():renderRecords(page);
+ $('#workspace-nav').querySelectorAll('a').forEach(a=>{if(a.dataset.page===(page==='tasks'?'overview':page))a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
  if(page==='access'){const activeStore=store;patientAccess(store).then(html=>{if(page==='access'&&store===activeStore)$('#page-content').innerHTML=heading('Patient access','Link verified patient accounts to their own care profiles.')+html;}).catch(error=>{if(page==='access'&&store===activeStore)setText($('#access-loading'),error.message);});}
  if($('#chart-patient'))renderChart($('#chart-patient').value);
  const activeTab=$('.record-tabs [aria-current="page"]');if(activeTab){const tabs=activeTab.parentElement;if(activeTab.offsetLeft+activeTab.offsetWidth>tabs.offsetLeft+tabs.clientWidth)tabs.scrollLeft=activeTab.offsetLeft-tabs.offsetLeft+activeTab.offsetWidth-tabs.clientWidth;}
@@ -154,16 +153,17 @@ async function refreshVaccinationClinic(){
  catch(error){if(store===active&&error.status){active.error=error.message;updateStorageNotice();}}
 }
 
-function route(){const wasWorkspace=!$('#workspace-view').hidden,previousPage=page;const hash=location.hash.slice(1);const workspace=hash==='workspace'||hash.startsWith('workspace/');$('#home-view').hidden=workspace;$('#workspace-view').hidden=!workspace||!store;
+function updateAccountEntries(){const title=!store?'Sign in / Sign up':staff()?'Go to clinic dashboard':'Go to my dashboard';for(const span of document.querySelectorAll('[data-entry-label]'))setText(span,title);}
+function route(){updateAccountEntries();const wasWorkspace=!$('#workspace-view').hidden,previousPage=page;const hash=location.hash.slice(1);const workspace=hash==='workspace'||hash.startsWith('workspace/');$('#home-view').hidden=workspace;$('#workspace-view').hidden=!workspace||!store;
  document.body.classList.toggle('workspace-active',workspace&&Boolean(store));
  accountUI.hide();if(workspace&&!store){accountUI.show();$('.skip-link').href='#auth-main';document.title=t('Sign in')+' — E-Nay';return;}
  $('.skip-link').href=workspace?'#workspace-main':'#main';
  document.body.classList.toggle('workspace-active',workspace&&Boolean(store));
  if(workspace){const parts=hash.split('/');let next=parts[1]||'overview';profileId=null;subpage='records';if(next==='growth'){next='children';subpage='growth';}if(next==='visits'){next='mothers';subpage='visits';}
- page=Object.hasOwn(titles,next)&& (staff()||!['inventory','backup','access'].includes(next))?next:'overview';
+ page=Object.hasOwn(titles,next)&& (staff()||!['inventory','backup','access','tasks'].includes(next))?next:'overview';
  if(['mothers','children'].includes(page)){if(/^[MC]\d{3}$/.test(parts[2]??'')){profileId=parts[2];subpage=parts[3]||'records';}else if(parts[2])subpage=parts[2];const valid=['records','visits',...(page==='children'?['growth']:[]),...(profileId?['vaccines']:[])];if(!valid.includes(subpage))subpage='records';}
- if(page==='vaccines'&&/^[MC]\d{3}$/.test(parts[2]??''))profileId=parts[2];$('#mobile-page').innerHTML=['overview','mothers','children','vaccines','inventory','guides','backup','access'].filter(key=>staff()||!['inventory','backup','access'].includes(key)).map(key=>ui`<option value="${key}">${label(key==='overview'?'Overview':titles[key])}</option>`).join('');$('#mobile-page').value=page;for(const el of document.querySelectorAll('[data-page],#mobile-page option')){const key=el.dataset.page??el.value;el.hidden=!staff()&&['inventory','backup','access'].includes(key);el.disabled=el.hidden;}query='';filter='All';importStage=null;render();void refreshVaccinationClinic();if(!wasWorkspace||previousPage!==page)animateWorkspace();}
- document.title=workspace?`${t(titles[page])} — E-Nay`:'E-Nay — '+t('Care, closer to home');
+ if(page==='tasks')taskKind=parts[2]||'requests';if(page==='vaccines'&&/^[MC]\d{3}$/.test(parts[2]??''))profileId=parts[2];$('#mobile-page').innerHTML=['overview','mothers','children','vaccines','inventory','guides','backup','access'].filter(key=>staff()||!['inventory','backup','access'].includes(key)).map(key=>ui`<option value="${key}">${label(key==='overview'?'Overview':titles[key])}</option>`).join('');$('#mobile-page').value=page==='tasks'?'overview':page;for(const el of document.querySelectorAll('[data-page],#mobile-page option')){const key=el.dataset.page??el.value;el.hidden=!staff()&&['inventory','backup','access'].includes(key);el.disabled=el.hidden;}query='';filter='All';importStage=null;render();void refreshVaccinationClinic();if(!wasWorkspace||previousPage!==page)animateWorkspace();}
+ document.title=workspace?`${t(page==='tasks'?taskTitle(taskKind):titles[page])} — E-Nay`:'E-Nay — '+t('Care, closer to home');
 }
 window.addEventListener('hashchange',()=>{route();if(location.hash.startsWith('#workspace')||location.hash==='#home'||!location.hash)window.scrollTo(0,0);});route();
 const field=(key,label,kind='text',extra={})=>({key,label,kind,...extra});
@@ -171,7 +171,11 @@ function fields(type){
   if(type==='guides')return [field('title','Article title','text',{wide:true,maxLength:160}),field('category','Topic','select',{options:GUIDE_CATEGORIES}),field('status','Publication status','select',{options:['Draft','Published','Archived']}),field('summary','Short description','textarea',{optional:true,wide:true,maxLength:320}),field('content','Article text','textarea',{wide:true,maxLength:12000,hint:'Use paragraphs or line breaks. Text is shared as written, without automatic medical review.'}),field('titleFil','Filipino title','text',{optional:true,wide:true,maxLength:160}),field('summaryFil','Filipino short description','textarea',{optional:true,wide:true,maxLength:320}),field('contentFil','Filipino article text','textarea',{optional:true,wide:true,maxLength:12000,hint:'Optional: add both a Filipino title and article. Otherwise readers see the English version.'}),field('sourceName','Source / clinic','text',{optional:true,wide:true,maxLength:160}),field('resourceUrl','Link to material','url',{optional:true,wide:true,maxLength:2048,placeholder:'https://…',hint:'Link to a PDF, video or article. Linked files are not uploaded or downloaded for offline use.'})];
  const profile=[field('id','Profile ID','text',{hint:type==='mothers'?'M + exactly 3 digits, e.g. M001':'C + exactly 3 digits, e.g. C001',placeholder:type==='mothers'?'M001':'C001'}),field('name',type==='mothers'?'Mother’s name':'Child’s name','text',{autocomplete:'name'}),field('status','Monitoring status','select',{options:['Active','Inactive']}),field('contact','Contact number','tel',{optional:true,placeholder:'09… or +63…'}),field('barangay','Barangay / location','text',{optional:true,wide:true})];
  if(type==='mothers')return [profile[0],profile[1],field('age','Age in years','number',{min:12,max:60,step:1}),field('edd','Expected delivery date','date'),...profile.slice(2)];
- if(type==='children')return [profile[0],profile[1],field('gender','Sex recorded at birth','select',{options:['Female','Male']}),field('dob','Date of birth','date'),field('motherName','Mother’s name'),...profile.slice(2)];
+  if(type==='children'){
+   const mothers=data().mothers.map(m=>({value:m.id,label:`${m.name} · ${m.id}`})),previous=editing?.before;
+   if(previous?.motherId&&!mothers.some(m=>m.value===previous.motherId))mothers.push({value:previous.motherId,label:`${previous.motherName} · ${previous.motherId}`});
+   return [profile[0],profile[1],field('gender','Sex recorded at birth','select',{options:['Female','Male']}),field('dob','Date of birth','date'),field('motherId','Mother’s profile','select',{options:mothers,optional:true,wide:true,hint:'Select an existing profile, or enter her name below if she is not registered.'}),field('motherName','Mother’s name','text',{wide:true}),...profile.slice(2)];
+  }
  const patients=(type==='growth'?data().children:type==='visits'&&['mothers','children'].includes(page)?data()[page]:[...data().mothers,...data().children]).map(p=>({value:p.id,label:`${p.name} · ${p.id}`}));
  const patient=field('patient',type==='growth'?'Child profile':'Patient profile','select',{options:patients,wide:true});
  if(type==='visits')return [patient,field('date','Visit date','date'),field('followUp','Next follow-up','date',{optional:true}),field('bloodPressure','Blood pressure as recorded','text',{optional:true,placeholder:'e.g. 120/80 mmHg',hint:'Transcribe the clinician’s reading.'}),field('notes','Checkup notes','textarea',{wide:true}),field('symptoms','Reported symptoms','textarea',{wide:true,optional:true}),field('food','Food intake / dietary notes','textarea',{wide:true,optional:true})];
@@ -184,6 +188,7 @@ function fields(type){
  return [field('vaccine','Vaccine name'),field('batch','Batch ID'),field('stock','Available doses','number',{min:0,max:100000,step:1}),field('threshold','Low-stock alert at','number',{min:0,max:100000,step:1,hint:'Alert when available doses are at or below this number.'}),field('expires','Expiration date','date')];
 }
 function openForm(type,id=null,prefill={}){
+  if(type==='children'&&!id&&page==='mothers'&&profileId)prefill={motherId:profileId,...prefill};
   if(!staff()&&type==='guides'){toast('Only clinic staff can create, edit or publish care guides.');return;}
   if(!staff()&&type==='inventory'){toast('Vaccine stock is managed by clinic staff.');return;}
  if(store.blocked){toast('Storage needs attention. Open Data & backup before making changes.');return;}
@@ -196,7 +201,7 @@ function openForm(type,id=null,prefill={}){
  if(!id&&(type==='mothers'||type==='children')){const prefix=type==='mothers'?'M':'C';for(let n=1;n<=999;n++){const candidate=prefix+String(n).padStart(3,'0');if(!data()[type].some(r=>r.id===candidate)){defaults.id=candidate;break;}}}
  $('#form-fields').innerHTML=fields(type).map(f=>{const value=prefill[f.key]??(f.key==='stockMode'&&original?(original.batchId?'clinic':vaccinationNeedsReview(original)?'clinic':'external'):original?.[f.key])??defaults[f.key]??'';const opts=(f.options??[]).map(x=>typeof x==='string'?{value:x,label:x}:x);let control;
  const attrs=`id="field-${f.key}" name="${f.key}" ${f.readonly?'readonly':''} ${f.key==='patient'&&type==='vaccines'&&original?.approvalStatus?'disabled':''} ${!f.optional?'required':''} aria-describedby="error-${f.key}${f.hint?' hint-'+f.key:''}"`;
- if(f.kind==='select')control=ui`<select ${attrs}>${['patient','batchId'].includes(f.key)?ui`<option value="">${label(f.key==='batchId'?'Choose a vaccine batch…':'Choose a profile…')}</option>`:''}${opts.map(o=>ui`<option value="${escape(o.value)}" ${o.value===value?'selected':''}>${f.key==='patient'?escape(o.label):f.key==='batchId'?o.label:label(o.label)}</option>`).join('')}</select>`;
+  if(f.kind==='select')control=ui`<select ${attrs}>${['patient','batchId','motherId'].includes(f.key)?ui`<option value="">${label(f.key==='motherId'?'Enter mother’s name instead':f.key==='batchId'?'Choose a vaccine batch…':'Choose a profile…')}</option>`:''}${opts.map(o=>ui`<option value="${escape(o.value)}" ${o.value===value?'selected':''}>${['patient','motherId'].includes(f.key)?escape(o.label):f.key==='batchId'?o.label:label(o.label)}</option>`).join('')}</select>`;
   else if(f.kind==='textarea')control=ui`<textarea ${attrs} maxlength="${f.maxLength??2000}" ${['content','contentFil'].includes(f.key)?'rows="10"':''}>${escape(value)}</textarea>`;
   else control=ui`<input ${attrs} type="${f.kind}" value="${escape(value)}" ${f.placeholder?`placeholder="${escape(t(f.placeholder))}" data-ui-attrs="${escape(JSON.stringify({placeholder:f.placeholder}))}"`:''} ${f.autocomplete?`autocomplete="${f.autocomplete}"`:''} ${['text','url'].includes(f.kind)?`maxlength="${f.maxLength??100}"`:''} ${f.kind==='tel'?'maxlength="40"':''} ${f.min!==undefined?`min="${f.min}"`:''} ${f.max!==undefined?`max="${f.max}"`:''} ${f.step!==undefined?`step="${f.step}"`:''} ${f.key==='id'&&(id||!staff())?'disabled':''} ${f.kind==='number'?'inputmode="decimal"':''}>`;
  return ui`<div class="field ${f.wide?'wide':''} ${f.key==='name'||f.key==='motherName'?'wide-mobile':''}"><label for="field-${f.key}">${label(f.label)}${f.optional?' <span>(optional)</span>':''}</label>${control}${f.hint?ui`<span class="hint" id="hint-${f.key}">${label(f.hint)}</span>`:''}<span id="error-${f.key}" class="field-error" aria-live="polite"></span></div>`;}).join('');
@@ -205,8 +210,10 @@ function openForm(type,id=null,prefill={}){
  if($('#field-date'))$('#field-date').max=today();if($('#field-preferredDate')&&!staff())$('#field-preferredDate').min=today();
  if(type==='vaccines'){if(staff())updateVaccineSource();else{setText($('#record-submit-label'),id?'Save request':'Submit vaccination request');$('#form-fields').insertAdjacentHTML('beforeend',markup('<p class="stock-hint">Your request stays pending until staff approve a date and vaccine batch. Approval reserves one clinic dose. Only staff can record administration.</p>'));if(store.catalog?.length){$('#field-vaccine').setAttribute('list','vaccine-catalog');$('#form-fields').insertAdjacentHTML('beforeend',`<datalist id="vaccine-catalog">${store.catalog.map(name=>`<option value="${escape(name)}"></option>`).join('')}</datalist>`);}}}
   if(type==='guides'){$('#form-fields').insertAdjacentHTML('beforeend',markup('<div class="field wide"><p class="notice">Published guides are shared with all patient accounts after sync. Do not include private patient details.</p><button type="button" class="button secondary" id="preview-clinic-guide">Preview article</button></div>'));updateGuideSubmit();}
+  if(type==='children')updateMotherSelection();
  formBaseline=JSON.stringify(Object.fromEntries(new FormData($('#record-form'))));$('#form-dialog').showModal();
 }
+function updateMotherSelection(){const select=$('#field-motherId'),input=$('#field-motherName');if(!select||!input)return;const mother=data().mothers.find(m=>m.id===select.value);if(mother)input.value=mother.name;input.readOnly=Boolean(select.value);}
 function updateGuideSubmit(){if(editing?.type==='guides')setText($('#record-submit-label'),$('#field-status').value==='Published'?'Publish guide':$('#field-status').value==='Archived'?'Archive guide':'Save draft');}
 
 function updateVaccineSource(){
@@ -253,7 +260,7 @@ document.addEventListener('click',async e=>{
  const add=e.target.closest('[data-add]'),edit=e.target.closest('[data-edit]'),exp=e.target.closest('[data-export]');
   const readGuide=e.target.closest('[data-read-guide]');if(readGuide)showClinicGuide(readGuide.dataset.readGuide);
   if(e.target.closest('#preview-clinic-guide')&&staff()&&editing?.type==='guides'){const raw=Object.fromEntries(new FormData($('#record-form')));info('Article preview',clinicGuideReader(raw));readingGuidePreview=raw;}
- if(add)openForm(add.dataset.add);
+ if(add)openForm(add.dataset.add,null,add.dataset.patient?{patient:add.dataset.patient}:{});
  const review=e.target.closest('[data-review-vaccination]');if(review&&staff())openForm('vaccines',review.dataset.reviewVaccination,{approvalStatus:'Approved',stockMode:'clinic'});
  const details=e.target.closest('[data-vaccine-details]');if(details){const record=data().vaccines.find(item=>item.id===details.dataset.vaccineDetails);if(record)showVaccinationDetails(record);}
  const cancel=e.target.closest('[data-cancel-vaccination]');if(cancel&&!staff()){const record=data().vaccines.find(item=>item.id===cancel.dataset.cancelVaccination);if(record&&window.confirm(t('Cancel this pending vaccination request?'))){try{await store.save('vaccines',{...record,approvalStatus:'Cancelled'},record.id,{before:record});render();toast(store.pending?'Saved in your encrypted offline copy. Clinic sync is pending.':'Vaccination request cancelled.');}catch(error){toast(error.message);}}}
@@ -282,6 +289,7 @@ document.addEventListener('click',async e=>{
 });
 document.addEventListener('input',e=>{if(e.target.id==='record-search'){query=e.target.value;refreshResults();}if(e.target.id==='guide-search'){query=e.target.value;refreshGuideResults();}});
 document.addEventListener('change',async e=>{
+  if(e.target.id==='field-motherId')updateMotherSelection();
  if(['field-stockMode','field-batchId','field-approvalStatus','field-administered'].includes(e.target.id))updateVaccineSource();
   if(e.target.id==='field-status'&&editing?.type==='guides')updateGuideSubmit();
   if(e.target.id==='guide-filter'){filter=e.target.value;refreshGuideResults();}
@@ -315,6 +323,6 @@ if(offlineSupported){
  navigator.serviceWorker.addEventListener('controllerchange',checkCachedShell);
 }else {connection();$('#offline-guidance').hidden=false;}
 
-document.addEventListener('enay-language-change',()=>{if(store){updateStorageNotice();if(page==='guides'){render();if((readingGuideId||readingGuidePreview)&&$('#info-dialog').open){const guide=readingGuidePreview??data().guides.find(g=>g.id===readingGuideId);if(guide)$('#info-body').innerHTML=clinicGuideReader(guide);}}}document.title=location.hash.startsWith('#workspace')?(store?t(titles[page]):t('Sign in'))+' — E-Nay':'E-Nay — '+t('Care, closer to home');});
+document.addEventListener('enay-language-change',()=>{updateAccountEntries();if(store){updateStorageNotice();if(page==='guides'){render();if((readingGuideId||readingGuidePreview)&&$('#info-dialog').open){const guide=readingGuidePreview??data().guides.find(g=>g.id===readingGuideId);if(guide)$('#info-body').innerHTML=clinicGuideReader(guide);}}}document.title=location.hash.startsWith('#workspace')?(store?t(titles[page]):t('Sign in'))+' — E-Nay':'E-Nay — '+t('Care, closer to home');});
 startMotion();
 void accountUI.restore();

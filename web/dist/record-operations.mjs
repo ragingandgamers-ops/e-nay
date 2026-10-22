@@ -80,9 +80,18 @@ export function applyRecordOperations(data,operations,{role,allowedIds=[],alloca
    const before=structuredClone(operation.before);
    if(before?.id)before.id=idMap[before.id]??before.id;
    if(before?.patient)before.patient=idMap[before.patient]??before.patient;
+   if(before?.motherId)before.motherId=idMap[before.motherId]??before.motherId;
    if(canonical(before)!==canonical(previous))throw conflict();
   }
   if(raw.patient)raw.patient=idMap[raw.patient]??raw.patient;
+  if(type==='children'){
+   if(raw.motherId===undefined&&previous?.motherId)raw.motherId=previous.motherId;
+   if(raw.motherId){raw.motherId=idMap[raw.motherId]??raw.motherId;raw.motherId=String(raw.motherId).trim().toUpperCase();
+    const changed=raw.motherId!==previous?.motherId;
+    if(role==='patient'&&changed&&!allowed.has(raw.motherId))throw recordError(403,'Choose a mother’s profile linked to your account.');
+    if(changed&&!next.mothers.some(m=>m.id===raw.motherId))throw new ValidationError('motherId','Choose an existing mother’s profile, or enter her name instead.');
+   }
+  }
   if(previous)raw.id=previous.id;
   if(profile&&!previous&&role==='patient'&&allocatePatientIds){const requested=raw.id;if(typeof requested!=='string'||!(type==='mothers'?/^M\d{3}$/:/^C\d{3}$/).test(requested))throw new ValidationError('id','Invalid profile identifier.');raw.id=nextProfileId(next,type);idMap[requested]=raw.id;}
   if(!profile&&role==='patient'&&!allowed.has(raw.patient))throw deny();

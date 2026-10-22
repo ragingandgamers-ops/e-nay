@@ -73,6 +73,23 @@ test('cross-origin mutations, expired sessions and missing database configuratio
 });
 
 const newOp=(type,record)=>({type,record,originalId:null});
+test('patients can select only authorized maternal profiles and selecting a relationship never grants access',async()=>{
+ const f=await fixture();try{
+  const staff=await f.login('worker.one'),patient=await f.login('patient.one'),other=await f.login('patient.two');await f.call('/api/workspace',{method:'PUT',session:staff,body:{baseRevision:'initial',operationId:crypto.randomUUID(),data:clinicData()}});await f.call('/api/links',{method:'PUT',session:staff,body:{accountId:'patient-id',patientIds:['M001']}});
+  const child={id:'C002',name:'Family Child',gender:'Female',dob:today(),motherId:'M001',motherName:'Forged text',status:'Active'};
+  const saved=await records(f,patient,[newOp('children',child)]);assert.equal(saved.status,200);assert.equal(saved.value.data.children[0].motherId,'M001');assert.equal(saved.value.data.children[0].motherName,'First Test Mother');
+  assert.equal((await records(f,patient,[newOp('children',{...child,id:'C003',motherId:'M002'})])).status,403);assert.equal((await f.call('/api/workspace',{session:other})).value.data.children.length,0);
+  await f.call('/api/links',{method:'PUT',session:staff,body:{accountId:'patient-id',patientIds:[saved.value.data.children[0].id]}});
+  const partial=(await f.call('/api/workspace',{session:patient})).value.data;assert.equal(partial.mothers.length,0);assert.equal(partial.children[0].motherId,'M001');const updated=await records(f,patient,[editOp('children',partial.children[0],{contact:'09123456789'})]);assert.equal(updated.status,200);assert.equal(updated.value.data.mothers.length,0);assert.equal(updated.value.data.children[0].motherId,'M001');
+ }finally{f.db.close();}
+});
+test('offline family batches remap the selected maternal ID along with new child IDs',async()=>{
+ const f=await fixture();try{
+  const staff=await f.login('worker.one'),patient=await f.login('patient.one');await f.call('/api/workspace',{method:'PUT',session:staff,body:{baseRevision:'initial',operationId:crypto.randomUUID(),data:clinicData()}});
+  const saved=await records(f,patient,[newOp('mothers',mother('M001','Offline Mother')),newOp('children',{id:'C001',name:'Offline Child',gender:'Male',dob:today(),motherId:'M001',motherName:'Offline Mother',status:'Active'})]);assert.equal(saved.status,200);assert.equal(saved.value.idMap.M001,'M003');assert.equal(saved.value.data.children[0].motherId,'M003');assert.equal(saved.value.data.children[0].motherName,'Offline Mother');
+  const current=(await f.call('/api/workspace',{session:staff})).value;const legacy=structuredClone(current.data);delete legacy.children.find(r=>r.name==='Offline Child').motherId;assert.equal((await f.call('/api/workspace',{method:'PUT',session:staff,body:{baseRevision:current.revision,operationId:crypto.randomUUID(),data:legacy}})).status,200);assert.equal((await f.call('/api/workspace',{session:staff})).value.data.children.find(r=>r.name==='Offline Child').motherId,'M003');
+ }finally{f.db.close();}
+});
 test('only staff publish clinic guides; every patient sees published articles without private drafts',async()=>{
  const f=await fixture();try{
   const staff=await f.login('worker.one'),patient=await f.login('patient.one'),other=await f.login('patient.two');

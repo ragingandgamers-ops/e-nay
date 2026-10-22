@@ -1,8 +1,8 @@
 /* Public app shell only. Private API responses are never cached here. */
-const CACHE='enay-shell-v16';
+const CACHE='enay-shell-v17';
 // Pages redirects index.html to ./; a cached redirected response cannot be
 // returned for a navigation request. Cache and serve the canonical entry URL.
-const FILES=['./','./tokens.css','./styles.css','./design-system.css','./icons.mjs','./assets/plus-jakarta-sans-variable.ttf','./app.mjs','./accounts.mjs','./tab-session.mjs','./auth-ui.mjs','./language.mjs','./filipino.mjs','./core.mjs','./record-operations.mjs','./care-guides.mjs','./motion.mjs','./manifest.webmanifest','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./assets/philippines-mother-baby.webp','./assets/philippines-mother-baby-small.webp','./assets/philippines-mother-child.webp','./assets/philippines-mother-child-small.webp'];
+const FILES=['./','./theme.js','./theme.css','./dashboard.mjs','./dashboard-ui.mjs','./tokens.css','./styles.css','./design-system.css','./icons.mjs','./assets/plus-jakarta-sans-variable.ttf','./app.mjs','./accounts.mjs','./tab-session.mjs','./auth-ui.mjs','./language.mjs','./filipino.mjs','./core.mjs','./record-operations.mjs','./care-guides.mjs','./motion.mjs','./manifest.webmanifest','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./assets/philippines-mother-baby.webp','./assets/philippines-mother-baby-small.webp','./assets/philippines-mother-child.webp','./assets/philippines-mother-child-small.webp'];
 const urls=FILES.map(p=>new URL(p,self.location.href).href);
 self.addEventListener('install',event=>event.waitUntil((async()=>{
  const cache=await caches.open(CACHE);

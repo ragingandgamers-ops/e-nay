@@ -95,7 +95,12 @@ function normalize(type, raw, data, {original = null, historical = false, preser
       r.dob = date(raw.dob,'dob');
       if (r.dob > now) fail('dob','Date of birth cannot be in the future.');
       if (!historical && original?.dob !== r.dob && r.dob < yearsBefore(now,2)) fail('dob','New child profiles are for children up to two years old.');
-      r.motherName = name(raw.motherName,'motherName');
+      const motherId=raw.motherId===undefined?original?.motherId:raw.motherId;
+      if(motherId){r.motherId=text(motherId,'motherId').toUpperCase();if(!/^M\d{3}$/.test(r.motherId))fail('motherId','Choose a valid mother’s profile.');}
+      // Authorized patient snapshots may contain a child without access to the
+      // linked maternal record. Keep the child's name snapshot in that case.
+      const mother=r.motherId?data.mothers.find(m=>m.id===r.motherId):null;
+      r.motherName = name(mother?.name??raw.motherName,'motherName');
     }
   } else {
     if (!TYPES.includes(type)) fail('', 'Unknown record type.');
@@ -342,9 +347,18 @@ function applyRecordOperations(data,operations,{role,allowedIds=[],allocatePatie
    const before=structuredClone(operation.before);
    if(before?.id)before.id=idMap[before.id]??before.id;
    if(before?.patient)before.patient=idMap[before.patient]??before.patient;
+   if(before?.motherId)before.motherId=idMap[before.motherId]??before.motherId;
    if(canonical(before)!==canonical(previous))throw conflict();
   }
   if(raw.patient)raw.patient=idMap[raw.patient]??raw.patient;
+  if(type==='children'){
+   if(raw.motherId===undefined&&previous?.motherId)raw.motherId=previous.motherId;
+   if(raw.motherId){raw.motherId=idMap[raw.motherId]??raw.motherId;raw.motherId=String(raw.motherId).trim().toUpperCase();
+    const changed=raw.motherId!==previous?.motherId;
+    if(role==='patient'&&changed&&!allowed.has(raw.motherId))throw recordError(403,'Choose a mother’s profile linked to your account.');
+    if(changed&&!next.mothers.some(m=>m.id===raw.motherId))throw new ValidationError('motherId','Choose an existing mother’s profile, or enter her name instead.');
+   }
+  }
   if(previous)raw.id=previous.id;
   if(profile&&!previous&&role==='patient'&&allocatePatientIds){const requested=raw.id;if(typeof requested!=='string'||!(type==='mothers'?/^M\d{3}$/:/^C\d{3}$/).test(requested))throw new ValidationError('id','Invalid profile identifier.');raw.id=nextProfileId(next,type);idMap[requested]=raw.id;}
   if(!profile&&role==='patient'&&!allowed.has(raw.patient))throw deny();
@@ -481,7 +495,7 @@ async function saveWorkspace(db,account,input){
   if(input.data.guides===undefined)data.guides=validateData(JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body)).guides;
  // Older clients send whole snapshots without newer provenance/stock fields.
  // Preserve those fields on ordinary saves; reviewed replacements remain explicit.
- if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse','approvalStatus','preferredDate','requestNotes','reviewNotes'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];if(old?.stockUse?.kind&&record.stockUse&&record.stockUse.kind===undefined)record.stockUse.kind=old.stockUse.kind;}}
+ if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse','approvalStatus','preferredDate','requestNotes','reviewNotes','motherId'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];if(old?.stockUse?.kind&&record.stockUse&&record.stockUse.kind===undefined)record.stockUse.kind=old.stockUse.kind;}}
  try{data=validateData(data);}catch(error){throw new ApiError(400,error.message);}
  const revision=crypto.randomUUID(),now=Date.now(),body=JSON.stringify(data);
  if(new TextEncoder().encode(body).length>MAX_BODY-2000)throw new ApiError(413,'The workspace is too large to synchronize. Your previous clinic records are intact.');
@@ -532,7 +546,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'clinic-guides-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'family-dashboard-v1'});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
   if(raw.role&&raw.role!=='patient')throw new ApiError(403,'Staff access is assigned by the clinic; it cannot be selected during registration.');

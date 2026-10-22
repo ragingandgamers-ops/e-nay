@@ -42,6 +42,16 @@ Offline authorization reflects the last downloaded role and links. Revoking acce
 
 Old enay.workspace.v1 localStorage records are preserved and never uploaded automatically. Staff may choose Data & backup > Review records from the previous app, inspect the result, then explicitly confirm import. A confirmed clinic import clears patient account links, requiring staff identity verification and linking again. Stale/rejected imports leave current links intact. Damaged or all-invalid sources cannot silently blank clinic records. Java imports remain profile-only; complete web backups include contacts, barangay and all care types.
 
+## Linked family profiles, appearance and staff tasks
+
+Child creation offers an existing maternal-profile selector, showing names and IDs to distinguish people with the same name. Selecting a profile saves `motherId` and uses its canonical name. Manual mother-name entry remains available when no profile exists; old name-only records still load without guessed links. Staff can select any clinic maternal profile, while patients can select only authorized profiles. Linking a relationship does not grant account access to either record. A child-only account can keep an existing maternal link without receiving the maternal record. Authorized family records link both ways. Children created from a mother’s record start with that mother selected. Offline operations remap maternal IDs in children along with profile IDs; complete backups retain relationships, while Java text exports retain the name only. Legacy whole-snapshot saves preserve existing relationship metadata.
+
+Homepage entry buttons read **Sign in / Sign up** when signed out, **Go to clinic dashboard** for staff and **Go to my dashboard** for patients. Labels update on sign-in, restoration, language changes and sign-out.
+
+Appearance is available on the public language bar and under **My profile**. **Use device setting** is the default, with explicit **Light mode** and **Dark mode** overrides. A small public script applies the saved/system theme before styles; theme colors also cover dialogs, account pages, guides, tables, charts and native controls. Only the preference is stored in `enay.theme.v1`, independently of private records and sessions. Blocked preference storage still allows changes for the current page. Public theme assets are part of the offline shell.
+
+The staff summary has six clickable task queues: requests awaiting review, overdue approved vaccinations, today’s approved vaccinations, follow-ups due, unresolved growth review flags and stock requiring action. Profile totals are secondary links. Each queue opens the relevant records and an appropriate action; a due follow-up can start a visit for the selected patient. Follow-ups use the latest visit per patient. Growth flags use the latest recorded assessment, leaving a flag unresolved until a later assessed entry clears it. Empty expired batches are excluded from stock action; remaining expired doses and low/unavailable stock remain visible. Completed, cancelled and declined vaccination records do not become missed appointments. Counts use the authorized current clinic copy and Philippine dates; they refresh with normal clinic synchronization and do not implement a medical triage score.
+
 ## Clinic-authored care guides
 
 Care guides now has a separate **From your clinic** library above the bundled general guides. Staff can write an article, add a topic and short description, optionally supply a Filipino title/article/description, identify its clinic/source, and link an HTTPS article, PDF or video. Preview preserves unsaved editor values and can display either supplied language. Article text is plain text with paragraphs; HTML is escaped. Materials are links, not file uploads, and external files are not downloaded for offline use.
@@ -80,6 +90,7 @@ From the repository root, with the disposable --test server running for browser 
 
 ```sh
 node --test web/tests/core.test.mjs web/tests/accounts.test.mjs
+node --test web/tests/dashboard.test.mjs
 cd web
 npm install
 npx playwright install chromium
@@ -90,6 +101,7 @@ node web/tests/account-browser.test.mjs
 node web/tests/family-workflow.test.mjs
 node web/tests/vaccination-request-browser.test.mjs
 node web/tests/care-guides-browser.test.mjs
+node web/tests/usability-browser.test.mjs
 node web/tests/session-browser.test.mjs
 node web/tests/language-browser.test.mjs
 node web/tests/service-worker.test.mjs

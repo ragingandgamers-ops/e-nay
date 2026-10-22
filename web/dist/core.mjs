@@ -94,7 +94,12 @@ export function normalize(type, raw, data, {original = null, historical = false,
       r.dob = date(raw.dob,'dob');
       if (r.dob > now) fail('dob','Date of birth cannot be in the future.');
       if (!historical && original?.dob !== r.dob && r.dob < yearsBefore(now,2)) fail('dob','New child profiles are for children up to two years old.');
-      r.motherName = name(raw.motherName,'motherName');
+      const motherId=raw.motherId===undefined?original?.motherId:raw.motherId;
+      if(motherId){r.motherId=text(motherId,'motherId').toUpperCase();if(!/^M\d{3}$/.test(r.motherId))fail('motherId','Choose a valid mother’s profile.');}
+      // Authorized patient snapshots may contain a child without access to the
+      // linked maternal record. Keep the child's name snapshot in that case.
+      const mother=r.motherId?data.mothers.find(m=>m.id===r.motherId):null;
+      r.motherName = name(mother?.name??raw.motherName,'motherName');
     }
   } else {
     if (!TYPES.includes(type)) fail('', 'Unknown record type.');
