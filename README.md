@@ -4,11 +4,11 @@ E-Nay is an offline Java application for managing maternal and child health reco
 
 ## Website and mobile workspace
 
-The new [browser edition](web/README.md) has an inviting website with real licensed photography and an installable, responsive PWA. It provides local maternal/child profiles, visits and food/symptom notes, staff-entered vaccinations, child measurements and charts, vaccine inventory, cached guides, and reviewed backup/import flows. Open once while connected and wait for **Offline ready** before using it without internet.
+The new [browser edition](web/README.md) has an inviting website with real licensed photography and an installable, responsive PWA. It provides maternal/child profiles, visits and food/symptom notes, patient vaccination requests, staff approval with stock reservations, and staff-recorded administered doses, child measurements and charts, vaccine inventory, cached guides, and reviewed backup/import flows. Separate patient/staff accounts share clinic records through Cloudflare, with encrypted authorized offline copies. Sign in online first and wait for **Offline ready** and confirmation of a device copy.
 
-Run `python -m http.server 8765 --bind 127.0.0.1 --directory web/dist` from this folder, then open `http://127.0.0.1:8765/`. A phone uses the deployed HTTPS site and its browser's installation menu.
+With Node.js 24+, run `node web/server/dev-server.mjs` from this folder, then open `http://127.0.0.1:8765/`. A phone uses the deployed HTTPS site and its browser's installation menu.
 
-Browser data stays on that device and is separate from Java's `data/` folder. Transfer original Java profiles using text import/export; transfer the complete web workspace using a JSON backup. The [web documentation](web/README.md) explains offline setup, security limits, compatibility, and proposal features that still require clinical specification. No AI-generated photographs are included.
+Cloud clinic records and encrypted browser copies are separate from Java's `data/` folder. Staff can explicitly import Java profiles and reviewed legacy device data; no existing records are uploaded automatically. The [web documentation](web/README.md) explains offline setup, security limits, compatibility, and proposal features that still require clinical specification. No AI-generated photographs are included.
 
 ## Desktop app
 

@@ -1,23 +1,57 @@
-# Browser edition verification
+# Vaccination request and approval release — 19 October 2026
 
-Verified 18 October 2026 on Windows and Node.js with Microsoft Edge 155 and Chromium 151 via Playwright 1.62.1. All records used in testing were fictional and isolated in disposable browser contexts. No live patient files were modified.
+- 48 core/API tests passed, including patient approval forgery, own-family boundaries, pending edits/withdrawal, approval reservations, last-dose concurrency, rejection reasons, reservation returns, duplicate receipts and old-client metadata preservation.
+- 252 browser assertions passed across general workflows (66), presentation (16), accounts (17), family records (39), vaccination requests (39), session restoration (26), and localization (49).
+- The Cloudflare redirect/offline upgrade regression passed.
 
-- **23 core tests passed:** normalization, ID length and duplicate handling, name capitalization, numeric/date rules, calendar age boundaries, historical edits, malformed-row recovery, UTF-8 BOM, capacity, quota/permission failures, corrupt-store recovery, stale writes, clinical links, and complete backup round-trip.
-- **69 browser assertions passed:** landing-page section navigation, keyboard skip navigation, actual add/edit forms, inline retry without losing input, case-only duplicate rejection, search reset, care notes, vaccination due status, growth chart, low-stock flag, backup download, reviewed mixed-validity import, all-invalid import preservation, matching profile-field preservation, corrupt storage blocking and explicit restore, fixed edit IDs, and no uncaught JavaScript errors.
-- The browser was put **offline**, an uncached network probe was verified to fail, the page reloaded from its service-worker cache, a profile was created without a network, and a further reload preserved it. Supplementary external links displayed an offline message. The test explicitly controls both request blocking and Chromium's reported network state; Playwright's legacy emulation command alone did not retain navigator.onLine=false across reloads in Chromium 151.
-- Two simultaneous tabs were exercised: a stale open form could not overwrite the other tab's saved change.
-- Nine workspace sections were checked for horizontal page overflow at **320, 390, 768, and 1440 CSS pixels**. Desktop/mobile landing pages, a populated workspace, records, and a phone form were captured and visually inspected. Phone/tablet testing here is viewport emulation, not physical iPhone/Android device testing.
-- The cached app entry is served immediately on a weak connection; complete versioned shell caching is required before the “Offline ready” status appears. There are no third-party runtime libraries, remote fonts, analytics calls, or CDN image requests from the app.
+The request suite covers separate patient/staff sessions, an offline request and refresh, staff verification, approved appointment visibility, reservation/administration counts, declines, cancellations, stale appointment refresh, conflict recovery with a private pending download, both languages and 320/390/768/1440px layouts. Tests use disposable fictional accounts and records. Physical iOS/Safari remains untested.
 
-Commands from repository root:
+Earlier release evidence follows.
+
+# Family records and connected vaccination release — 19 October 2026
+
+Validation used disposable fictional accounts and data on the local Node 24 server. No real patient records were used.
+
+- 41 core/API tests passed, including server-enforced ownership, stock/role restrictions, auto-linked patient profiles, globally unique IDs, record conflicts, atomic last-dose concurrency, batch expiry, receipt retries, correction refunds, and Philippine midnight.
+- 66 general browser assertions passed.
+- 16 presentation assertions passed.
+- 17 account browser assertions passed.
+- 39 family workflow assertions passed: patient edits visible to staff, combined profile histories, compact profile menu, two offline children with linked growth, lost-response retry, clinic dose assignment and stock counts.
+- 26 session browser assertions passed.
+- 49 localization browser assertions passed.
+- Cloudflare redirect/cache regression passed, including legacy recovery without deleting stored data.
+
+Responsive layouts were checked at 320, 390, 768 and 1440 px. Browser automation used Chromium; physical iOS/Safari behavior still needs device testing. Screenshots are in ignored test-output/web/. CI runs these suites with fictional fixtures.
+
+Previous release verification follows.
+
+# Browser edition verification — accounts release
+
+Verified 18 October 2026 on Windows, Node.js 24.19.0 and Chromium 151 via Playwright. Tests used fictional data in a disposable in-memory local clinic and separate browser contexts. No real medical records were uploaded or used in tests.
+
+- 23 core validation/recovery tests passed, including exact IDs, preserved capitalization, real dates, malformed rows, all-invalid imports, capacity, historical edits, quota/permission errors and explicit legacy corruption recovery.
+- 10 API tests passed: guests blocked; patient-only registration; linked-only reads; patient mutations forbidden; server role revocation; atomic revision conflict/idempotent retry; invalid link replacement preserves access; reviewed imports clear links while stale imports preserve them; proof-required sessions/logout; same-origin enforcement, expiry and missing-DB failures.
+- 66 functional browser assertions passed: real forms/field retries, case-only duplicates, records across all six types, reviewed malformed imports, retained contact fields, offline reload/save/unlock, stale-tab protection, preserved unreadable legacy data, keyboard navigation and nine staff sections at 320/390/768/1440 CSS pixels.
+- 16 presentation assertions passed: real photos, scroll reveals, photo drift, workspace entrance, initial/changed reduced motion, embedded-browser guidance and online entry without a service-worker API.
+- 17 account browser assertions passed: sign-in gate, staff sync, clinic linking UI, patient-only view, forged inventory route blocked, cookie-only access rejected, no plaintext patient snapshot or login proof in persistent storage, sign-out clears records, offline unlock/wrong-password handling, online rejection cannot fall back to cached access, and separate devices preserve pending changes on a cloud conflict.
+- Cloudflare redirect/cache regression passed: repeated visits, /index.html canonical redirect, offline entry aliases, /start recovery from the old ERR_FAILED worker and preserved legacy data.
+
+Public smoke check on the deployed accounts release: /api/status returned 200 with ready:true; anonymous /api/workspace and /api/inventory returned 401; unknown-user login performed its password check and returned 401. This was a health check, not a production medical-data test. A real user-created account was approved as the first staff account only after the user explicitly confirmed its username. No production test/default accounts were seeded.
+
+Commands from the repository root:
 
 ```sh
-node --test web/tests/core.test.mjs
-# Start the server before the browser run:
-python -m http.server 8765 --bind 127.0.0.1 --directory web/dist
+node --test web/tests/core.test.mjs web/tests/accounts.test.mjs
+node web/server/dev-server.mjs --test
+# In a separate terminal with Playwright installed:
 node web/tests/browser.test.mjs
+node web/tests/presentation.test.mjs
+node web/tests/account-browser.test.mjs
+node web/tests/service-worker.test.mjs
 ```
 
-The existing Java sources were not changed by the web work. Their prior recorded results remain in the repository-level TEST_RESULTS.txt. The web and Java workflows run separately on GitHub.
+Screenshots are saved under ignored test-output/web/. Phone testing uses Chromium viewport/touch emulation, not physical iOS/Safari. Current Java sources were unchanged; their earlier verification remains in the repository-level TEST_RESULTS.txt. This is not a security audit or clinical validation, and passing implemented-feature tests does not establish proposal completeness. Remaining clinical proposal modules and offline revocation limits are listed in web/README.md.
 
-Scope limits: no clinical diagnostic validation has been performed. Built-in immunization schedules, automated WHO growth-standard interpretation, native phone packaging, encrypted storage, and device synchronization are not implemented. See README.md for the supported manual workflows and deployment requirements.
+## Hygieia design revision — 19 October 2026
+
+The 66 functional, 16 presentation and 17 account browser assertions and hosting-cache recovery regression were rerun successfully after the new design was applied. Desktop, sign-in, staff workspace and compact mobile record-card screenshots were reviewed. Computed font loading confirmed the locally hosted Plus Jakarta Sans face; primary buttons compute to #DA1B2E and the ten supplied palette stops match. Text contrast checks: primary button 5.03:1, active navigation 7.09:1, body 16.18:1, secondary text 5.95:1, success 6.43:1 and warning 6.04:1. These checks do not constitute a complete accessibility audit.
