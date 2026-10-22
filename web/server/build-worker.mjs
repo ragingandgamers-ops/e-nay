@@ -5,7 +5,7 @@ const core=await readFile(new URL('../dist/core.mjs',import.meta.url),'utf8');
 const operations=(await readFile(new URL('../dist/record-operations.mjs',import.meta.url),'utf8')).replace("import {TYPES,ValidationError,normalize,validateData,today} from './core.mjs';",'');
 const schema=await readFile(new URL('./schema.mjs',import.meta.url),'utf8');
 let worker=await readFile(new URL('./worker.mjs',import.meta.url),'utf8');
-for(const statement of ["import {validateData,emptyData} from '../dist/core.mjs';","import {applyRecordOperations} from '../dist/record-operations.mjs';","import {SCHEMA} from './schema.mjs';"]){
+for(const statement of ["import {validateData,emptyData,normalize} from '../dist/core.mjs';","import {applyRecordOperations,nextProfileId} from '../dist/record-operations.mjs';","import {SCHEMA} from './schema.mjs';"]){
  if(!worker.includes(statement))throw new Error('Worker imports changed; update the explicit build inputs.');
  worker=worker.replace(statement,'');
 }

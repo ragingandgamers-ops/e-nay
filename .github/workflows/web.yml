@@ -18,7 +18,7 @@ jobs:
           node web/server/build-worker.mjs
           git diff --exit-code -- web/dist/_worker.js
       - name: Core validation and recovery tests
-        run: node --test web/tests/core.test.mjs web/tests/accounts.test.mjs web/tests/dashboard.test.mjs web/tests/lists.test.mjs
+        run: node --test web/tests/core.test.mjs web/tests/accounts.test.mjs web/tests/dashboard.test.mjs web/tests/lists.test.mjs web/tests/family-accounts.test.mjs
       - name: Browser test dependencies
         working-directory: web
         run: |
@@ -59,4 +59,35 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: web-screenshots
+          path: test-output/web/
+
+  family-accounts:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        engine: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Browser dependencies
+        working-directory: web
+        run: |
+          npm install --ignore-scripts
+          npx playwright install --with-deps ${{ matrix.engine }}
+      - name: Personal accounts, companion access and mobile forms
+        env:
+          ENAY_BROWSER: ${{ matrix.engine }}
+        run: |
+          node web/server/dev-server.mjs --test > /tmp/enay-family-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          node -e "(async()=>{for(let n=0;n<100;n++){try{if((await fetch('http://127.0.0.1:8765/api/status')).ok)return;}catch{}await new Promise(r=>setTimeout(r,100));}process.exit(1);})();"
+          node web/tests/family-accounts-browser.test.mjs
+      - name: Keep family UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: family-${{ matrix.engine }}-screenshots
           path: test-output/web/

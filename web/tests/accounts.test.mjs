@@ -25,9 +25,9 @@ test('guest requests cannot read clinic records, inventory, accounts or links',a
 test('public registration creates only patient accounts and does not expose password hashes',async()=>{
  const f=await fixture();try{
   assert.equal((await f.call('/api/register',{method:'POST',body:{username:'new.patient',password,displayName:'Test Patient',role:'staff'}})).status,403);
-  const registered=await f.call('/api/register',{method:'POST',body:{username:'new.patient',password,displayName:'Test Patient'}});assert.equal(registered.status,201);
+  const registered=await f.call('/api/register',{method:'POST',body:{username:'new.patient',password,displayName:'Test Patient',kind:'mother',age:29,edd:today()}});assert.equal(registered.status,201);
   const row=await f.db.prepare('SELECT * FROM accounts WHERE username=?').bind('new.patient').first();assert.equal(row.role,'patient');assert.match(row.password_hash,/^scrypt\$/);assert.ok(!JSON.stringify(registered.value).includes(row.password_hash));
-  assert.equal((await f.call('/api/register',{method:'POST',body:{username:'new.patient',password,displayName:'Duplicate'}})).status,409);
+  assert.equal((await f.call('/api/register',{method:'POST',body:{username:'new.patient',password,displayName:'Duplicate',kind:'father'}})).status,409);
  }finally{f.db.close();}
 });
 test('patient reads contain only staff-linked profiles and never clinic inventory',async()=>{
