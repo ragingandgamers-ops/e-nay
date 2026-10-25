@@ -1,5 +1,6 @@
 import {t,label,ui,markup,setText} from './language.mjs';
 import {AccountStore,api} from './accounts.mjs';
+import {updateMaternalRequirements} from './forms.mjs';
 import {maternalInputs} from './family-ui.mjs';
 import {createPatientDirectory} from './directory-ui.mjs';
 const $=s=>document.querySelector(s);
@@ -11,9 +12,9 @@ export function setupAccounts(onChange){
  function busy(value){$('#auth-main').setAttribute('aria-busy',String(value));$('#auth-form').hidden=value;$('.auth-tabs').hidden=value;resumeStatus.hidden=!value;for(const control of view.querySelectorAll('input,button,select'))control.disabled=value;if(!value)registrationFields();}
  busy(true);
  let registration=false;
- function registrationFields(){const mother=registration&&$('#account-kind').value==='mother';$('#registration-maternal').hidden=!mother;for(const c of $('#registration-maternal').querySelectorAll('input'))c.disabled=!mother;}
- $('#account-kind').onchange=registrationFields;
- function mode(value){registration=value;registrationFields();for(const [id,active] of [['choose-login',!value],['choose-register',value]]){const tab=$('#'+id);tab.classList.toggle('primary',active);tab.classList.toggle('secondary',!active);tab.setAttribute('aria-pressed',String(active));}$('#registration-name').hidden=!value;$('#account-name').required=value;setText($('#auth-title'),value?'A little closer to your care.':'Welcome back.');$('#account-password').autocomplete=value?'new-password':'current-password';setText($('#auth-submit'),value?'Create patient account ↗':'Sign in / unlock offline copy ↗');$('#auth-error').hidden=true;$('#auth-success').hidden=true;}
+ function registrationFields(){$('#account-kind').required=registration;$('#account-kind').disabled=!registration;const mother=registration&&$('#account-kind').value==='mother';$('#registration-maternal').hidden=!mother;for(const c of $('#registration-maternal').querySelectorAll('input,select'))c.disabled=!mother;updateMaternalRequirements($('#auth-form'));}
+ $('#account-kind').onchange=registrationFields;$('#join-pregnancy').onchange=()=>updateMaternalRequirements($('#auth-form'));
+ function mode(value){registration=value;registrationFields();for(const [id,active] of [['choose-login',!value],['choose-register',value]]){const tab=$('#'+id);tab.classList.toggle('primary',active);tab.classList.toggle('secondary',!active);tab.setAttribute('aria-pressed',String(active));}$('#registration-name').hidden=!value;$('#account-name').required=value;setText($('#auth-title'),value?'A little closer to your care.':'Welcome back.');$('#account-password').autocomplete=value?'new-password':'current-password';setText($('#auth-submit'),value?'Create patient account ↗':'Sign in / unlock offline copy ↗');$('#auth-error').hidden=true;$('#auth-success').hidden=true;updateMaternalRequirements($('#auth-form'));}
  $('#choose-login').onclick=()=>mode(false);$('#choose-register').onclick=()=>mode(true);
  $('#auth-form').onsubmit=async event=>{event.preventDefault();const button=$('#auth-submit');button.disabled=true;$('#auth-error').hidden=true;$('#auth-success').hidden=true;
   try{const username=$('#account-username').value,password=$('#account-password').value;

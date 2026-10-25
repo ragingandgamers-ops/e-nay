@@ -87,8 +87,9 @@ export function normalize(type, raw, data, {original = null, historical = false,
     r.barangay = text(raw.barangay,'barangay',false);
     if (type === 'mothers') {
       r.age = number(raw.age,'age',12,60,true);
-      r.edd = date(raw.edd,'edd');
-      if (!historical && original?.edd !== r.edd && r.edd < now) fail('edd','A new delivery date must be today or later.');
+      if(raw.pregnancyStatus!==undefined||original?.pregnancyStatus!==undefined)r.pregnancyStatus=choice(raw.pregnancyStatus??original.pregnancyStatus,'pregnancyStatus',['Pregnant','Not pregnant','Not recorded']);
+      r.edd = date(raw.edd,'edd',Boolean(r.pregnancyStatus&&r.pregnancyStatus!=='Pregnant'));
+      if (r.edd && !historical && original?.edd !== r.edd && r.edd < now) fail('edd','A new delivery date must be today or later.');
     } else {
       r.gender = choice(raw.gender,'gender',['Female','Male']);
       r.dob = date(raw.dob,'dob');
@@ -121,6 +122,7 @@ export function normalize(type, raw, data, {original = null, historical = false,
       if (r.followUp && r.followUp < r.date) fail('followUp','Follow-up cannot be before the visit.');
     } else if (type === 'vaccines') {
       r.vaccine = text(raw.vaccine,'vaccine');
+      if(raw.requestedVaccine!==undefined)r.requestedVaccine=text(raw.requestedVaccine,'requestedVaccine');
       if(raw.approvalStatus!==undefined)r.approvalStatus=choice(raw.approvalStatus,'approvalStatus',['Pending verification','Approved','Rejected','Cancelled']);
       const request=r.approvalStatus&&r.approvalStatus!=='Approved';
       r.dose = text(raw.dose,'dose',!request);
@@ -249,6 +251,7 @@ export function parseText(content,type) {
   return {records:data[type],errors};
 }
 export function toText(records,type) {
+  if(type==='mothers'&&records.some(r=>!r.edd))fail('edd','Maternal records without a due date need a complete JSON backup. The Java text format requires a date.');
   return records.map(r=>type==='mothers'?[r.id,r.name,r.age,r.edd,r.status].join('|'):[r.id,r.name,r.gender,r.dob,r.motherName,r.status].join('|')).join('\n')+(records.length?'\n':'');
 }
 export function ageMonths(dob, now=today()) {

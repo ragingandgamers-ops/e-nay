@@ -59,3 +59,9 @@ test('invalid guide status, empty content, oversized text, incomplete translatio
  for(const patch of [{status:'Public'},{content:' '},{title:'x'.repeat(161)},{content:'x'.repeat(12001)},{titleFil:'Pamagat'},{contentFil:'Nilalaman'},{resourceUrl:'javascript:alert(1)'},{resourceUrl:'data:text/html,test'},{resourceUrl:'http://example.org/file.pdf'},{resourceUrl:'https://user:password@example.org/private'},{resourceUrl:'/local/file.pdf'},{content:'Bad\u0000content'}])assert.throws(()=>store.save('guides',guide(patch)));
  assert.equal(storage.raw(),original);
 });
+
+test('due dates are required only for explicitly pregnant mothers; legacy dates and complete backups remain intact',()=>{
+ const d=emptyData();const no=normalize('mothers',{...mother(),pregnancyStatus:'Not pregnant',edd:''},d);assert.equal(no.edd,'');assert.equal(no.pregnancyStatus,'Not pregnant');d.mothers.push(no);assert.deepEqual(readEnvelope(JSON.stringify(envelope(d))).data.mothers[0],no);assert.throws(()=>toText([no],'mothers'),/complete JSON backup/);
+ assert.throws(()=>normalize('mothers',{...mother('M002'),pregnancyStatus:'Pregnant',edd:''},d),e=>e.field==='edd');assert.throws(()=>normalize('mothers',{...mother('M002'),pregnancyStatus:'Not pregnant',edd:'2027-02-30'},d));
+ assert.throws(()=>normalize('mothers',{...mother('M002'),pregnancyStatus:'Guess'},d));const legacy=normalize('mothers',{...mother('M002'),edd:'2020-01-01'},d,{historical:true});assert.equal(legacy.pregnancyStatus,undefined);assert.equal(legacy.edd,'2020-01-01');
+});

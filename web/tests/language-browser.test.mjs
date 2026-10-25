@@ -24,7 +24,7 @@ try{
  await language(page,'en');check((await page.locator('#anywhere-title').textContent()).includes('for a stronger signal.'),'Inline translations preserve spacing between neighboring words');await language(page,'fil');await page.reload();check(await page.locator('html').getAttribute('lang')==='fil','Language preference survives refresh');
  await page.locator('.site-header a[href="#workspace"]').click();await page.locator('#account-username').fill('test.staff');await page.locator('#account-password').fill('Fictional-test-password-2026!');
  await language(page,'en');check(await page.locator('#account-username').inputValue()==='test.staff'&&await page.locator('#account-password').inputValue()==='Fictional-test-password-2026!','Switching language preserves entered login values');await language(page,'fil');
- check(await page.locator('label[for="account-name"]').textContent()==='Inyong pangalan','Account screen uses Filipino labels');
+ check((await page.locator('label[for="account-name"]').textContent()).startsWith('Inyong pangalan'),'Account screen uses Filipino labels');
  await page.locator('#auth-submit').click();await page.locator('#workspace-view').waitFor({state:'visible'});
  check((await page.locator('#page-content h1').textContent()).includes('Buod ng inyong klinika.'),'Clinic screen follows the chosen language');
  await route(page,'mothers');await page.locator('[data-add="mothers"]').first().click();

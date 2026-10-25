@@ -75,3 +75,8 @@ test('staff cannot unlink a personal maternal record; reviewed imports revoke co
  const current=(await f.call('workspace','GET',null,staff)).value;assert.equal((await f.call('workspace','PUT',{data:current.data,baseRevision:current.revision,operationId:crypto.randomUUID(),resetPatientLinks:true},staff)).status,200);
  const state=(await f.call('workspace','GET',null,father)).value;assert.equal(state.family.partner,null);assert.equal(state.data.mothers.length,0);assert.equal((await f.db.prepare('SELECT maternal_id FROM family_accounts WHERE account_id=?').bind(mother.account.id).first()).maternal_id,null);assert.equal((await f.db.prepare('SELECT count(*) AS n FROM accounts').first()).n,3);
 }finally{f.db.close();}});
+
+test('nonpregnant mothers register without a due date, while pregnant registration validates it atomically',async()=>{const f=await fixture();try{
+ const raw={username:'not.pregnant',password,kind:'mother',displayName:'Fictional Mother',age:29,pregnancyStatus:'Not pregnant',edd:''};assert.equal((await f.call('register','POST',raw)).status,201);const own=(await f.call('workspace','GET',null,await f.login(raw.username))).value.data.mothers[0];assert.equal(own.edd,'');assert.equal(own.pregnancyStatus,'Not pregnant');
+ assert.equal((await f.call('register','POST',{...raw,username:'pregnant.mother',pregnancyStatus:'Pregnant'})).status,400);assert.equal((await f.db.prepare('SELECT count(*) AS n FROM accounts WHERE username=?').bind('pregnant.mother').first()).n,0);
+}finally{f.db.close();}});

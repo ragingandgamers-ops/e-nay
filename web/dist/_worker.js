@@ -88,8 +88,9 @@ function normalize(type, raw, data, {original = null, historical = false, preser
     r.barangay = text(raw.barangay,'barangay',false);
     if (type === 'mothers') {
       r.age = number(raw.age,'age',12,60,true);
-      r.edd = date(raw.edd,'edd');
-      if (!historical && original?.edd !== r.edd && r.edd < now) fail('edd','A new delivery date must be today or later.');
+      if(raw.pregnancyStatus!==undefined||original?.pregnancyStatus!==undefined)r.pregnancyStatus=choice(raw.pregnancyStatus??original.pregnancyStatus,'pregnancyStatus',['Pregnant','Not pregnant','Not recorded']);
+      r.edd = date(raw.edd,'edd',Boolean(r.pregnancyStatus&&r.pregnancyStatus!=='Pregnant'));
+      if (r.edd && !historical && original?.edd !== r.edd && r.edd < now) fail('edd','A new delivery date must be today or later.');
     } else {
       r.gender = choice(raw.gender,'gender',['Female','Male']);
       r.dob = date(raw.dob,'dob');
@@ -122,6 +123,7 @@ function normalize(type, raw, data, {original = null, historical = false, preser
       if (r.followUp && r.followUp < r.date) fail('followUp','Follow-up cannot be before the visit.');
     } else if (type === 'vaccines') {
       r.vaccine = text(raw.vaccine,'vaccine');
+      if(raw.requestedVaccine!==undefined)r.requestedVaccine=text(raw.requestedVaccine,'requestedVaccine');
       if(raw.approvalStatus!==undefined)r.approvalStatus=choice(raw.approvalStatus,'approvalStatus',['Pending verification','Approved','Rejected','Cancelled']);
       const request=r.approvalStatus&&r.approvalStatus!=='Approved';
       r.dose = text(raw.dose,'dose',!request);
@@ -250,6 +252,7 @@ function parseText(content,type) {
   return {records:data[type],errors};
 }
 function toText(records,type) {
+  if(type==='mothers'&&records.some(r=>!r.edd))fail('edd','Maternal records without a due date need a complete JSON backup. The Java text format requires a date.');
   return records.map(r=>type==='mothers'?[r.id,r.name,r.age,r.edd,r.status].join('|'):[r.id,r.name,r.gender,r.dob,r.motherName,r.status].join('|')).join('\n')+(records.length?'\n':'');
 }
 function ageMonths(dob, now=today()) {
@@ -309,6 +312,7 @@ function prepareVaccination(next,previous,raw,role){
   if(previous&&previous.approvalStatus!=='Pending verification')throw recordError(403,'Patients can change only pending vaccination requests. Contact clinic staff about approved doses or vaccination history.');
   const cancelling=previous&&raw.approvalStatus==='Cancelled';
   raw.approvalStatus=cancelling?'Cancelled':'Pending verification';
+  raw.requestedVaccine=raw.vaccine;
   raw.preferredDate=raw.preferredDate??previous?.preferredDate??raw.scheduled??'';
   raw.requestNotes=raw.requestNotes??previous?.requestNotes??raw.notes??'';
   raw.reviewNotes=previous?.reviewNotes??'';raw.notes=previous?.notes??'';
@@ -322,7 +326,8 @@ function prepareVaccination(next,previous,raw,role){
   raw.preferredDate=previous?.preferredDate??raw.preferredDate??'';
   raw.requestNotes=previous?.requestNotes??raw.requestNotes??'';
   raw.reviewNotes=raw.reviewNotes??previous?.reviewNotes??'';
-  if(previous?.approvalStatus==='Pending verification'&&raw.approvalStatus==='Approved'){if(vaccineKey(previous.vaccine)!==vaccineKey(raw.vaccine))throw new ValidationError('vaccine','Approve the vaccine the patient requested. Decline with a reason if a different vaccine is needed.');raw.stockMode='clinic';}
+  if(previous?.requestedVaccine!==undefined)raw.requestedVaccine=previous.requestedVaccine;else if(previous?.approvalStatus==='Pending verification')raw.requestedVaccine=previous.vaccine;else delete raw.requestedVaccine;
+  if(previous?.approvalStatus==='Pending verification'&&raw.approvalStatus==='Approved'){if(vaccineKey(previous.vaccine)!==vaccineKey(raw.vaccine)&&![true,'on'].includes(raw.confirmVaccineChange))throw new ValidationError('confirmVaccineChange','Verify the selected inventory vaccine against the patient’s request before approving.');raw.stockMode='clinic';}
   if(raw.approvalStatus!=='Approved'){raw.scheduled='';raw.administered='';delete raw.batchId;delete raw.stockUse;}
  }
 }
@@ -507,7 +512,7 @@ async function saveWorkspace(db,account,input){
   if(input.data.guides===undefined)data.guides=validateData(JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body)).guides;
  // Older clients send whole snapshots without newer provenance/stock fields.
  // Preserve those fields on ordinary saves; reviewed replacements remain explicit.
- if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse','approvalStatus','preferredDate','requestNotes','reviewNotes','motherId'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];if(old?.stockUse?.kind&&record.stockUse&&record.stockUse.kind===undefined)record.stockUse.kind=old.stockUse.kind;}}
+ if(input.resetPatientLinks!==true){const current=JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body);for(const type of Object.keys(data))for(const record of data[type]){const old=current[type]?.find(item=>item.id===record.id);for(const key of ['updatedByRole','batchId','stockUse','approvalStatus','preferredDate','requestNotes','reviewNotes','requestedVaccine','pregnancyStatus','motherId'])if(old?.[key]!==undefined&&record[key]===undefined)record[key]=old[key];if(old?.stockUse?.kind&&record.stockUse&&record.stockUse.kind===undefined)record.stockUse.kind=old.stockUse.kind;}}
  try{data=validateData(data);}catch(error){throw new ApiError(400,error.message);}
  const revision=crypto.randomUUID(),now=Date.now(),body=JSON.stringify(data);
  if(new TextEncoder().encode(body).length>MAX_BODY-2000)throw new ApiError(413,'The workspace is too large to synchronize. Your previous clinic records are intact.');
@@ -607,7 +612,7 @@ async function setupFamily(db,account,input,registration=null){
      if(linked.results.some(l=>data.mothers.some(m=>m.id===l.patient_id)))throw new ApiError(400,'Choose your existing maternal record to avoid creating a duplicate.');
     }
     maternalId=nextProfileId(data,'mothers');
-    let record;try{record=normalize('mothers',{id:maternalId,name:account.display_name,age:input.age,edd:input.edd,status:'Active',contact:input.contact??'',barangay:input.barangay??''},data);}catch(error){throw new ApiError(400,error.message);}
+    let record;try{record=normalize('mothers',{id:maternalId,name:account.display_name,age:input.age,edd:input.edd,...(input.pregnancyStatus!==undefined?{pregnancyStatus:input.pregnancyStatus}:{}),status:'Active',contact:input.contact??'',barangay:input.barangay??''},data);}catch(error){throw new ApiError(400,error.message);}
     record.updatedByRole='patient';data.mothers.push(record);try{validateData(data);}catch(error){throw new ApiError(400,error.message);}created=true;
    }
   }
@@ -673,7 +678,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'family-pairing-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'form-requirements-v1'});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
   if(raw.role&&raw.role!=='patient')throw new ApiError(403,'Staff access is assigned by the clinic; it cannot be selected during registration.');

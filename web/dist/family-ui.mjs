@@ -1,9 +1,10 @@
 import {t,label,ui,markup} from './language.mjs';
 import {api} from './accounts.mjs';
+import {updateMaternalRequirements} from './forms.mjs';
 import {today} from './core.mjs';
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function maternalInputs(prefix='join'){
- return ui`<div class="form-grid maternal-onboarding"><div class="field"><label for="${prefix}-age">Age in years</label><input id="${prefix}-age" name="age" type="number" min="12" max="60" step="1" required></div><div class="field"><label for="${prefix}-edd">Expected delivery date</label><input id="${prefix}-edd" name="edd" type="date" min="${today()}" required></div><div class="field wide"><label for="${prefix}-contact">Contact number (optional)</label><input id="${prefix}-contact" name="contact" type="tel" maxlength="40"></div><div class="field wide"><label for="${prefix}-barangay">Barangay / location (optional)</label><input id="${prefix}-barangay" name="barangay" maxlength="100"></div></div>`;
+ return ui`<div class="form-grid maternal-onboarding"><div class="field"><label for="${prefix}-age">Age in years</label><input id="${prefix}-age" name="age" type="number" min="12" max="60" step="1" required></div><div class="field"><label for="${prefix}-pregnancy">Current pregnancy status</label><select id="${prefix}-pregnancy" name="pregnancyStatus" required><option value="Pregnant">${label('Pregnant')}</option><option value="Not pregnant">${label('Not pregnant')}</option></select></div><div class="field"><label for="${prefix}-edd">Expected delivery date</label><input id="${prefix}-edd" name="edd" type="date" min="${today()}" required></div><div class="field wide"><label for="${prefix}-contact">Contact number</label><input id="${prefix}-contact" name="contact" type="tel" maxlength="40"></div><div class="field wide"><label for="${prefix}-barangay">Barangay / location</label><input id="${prefix}-barangay" name="barangay" maxlength="100"></div></div>`;
 }
 export function familyPanel(store){
  if(store.account.role==='staff')return '';
@@ -23,7 +24,8 @@ export function mountFamily(root,store,onChange){
  const fail=error=>{const out=root.querySelector('#family-error');if(out){out.textContent=t(error.message);out.hidden=false;}};
  const busy=async(form,action)=>{const controls=[...form.querySelectorAll('button,input,select')],states=controls.map(c=>c.disabled);controls.forEach(c=>c.disabled=true);try{await action();}catch(error){fail(error);}finally{controls.forEach((c,i)=>c.disabled=states[i]);}};
  const kind=root.querySelector('#family-kind'),maternal=root.querySelector('#family-maternal');
- if(kind)kind.onchange=()=>{maternal.hidden=kind.value==='father';for(const c of maternal.querySelectorAll('input,select'))c.disabled=maternal.hidden;};
+ if(kind)kind.onchange=()=>{maternal.hidden=kind.value==='father';for(const c of maternal.querySelectorAll('input,select'))c.disabled=maternal.hidden;updateMaternalRequirements(root);};
+ root.querySelector('[name=pregnancyStatus]')?.addEventListener('change',()=>updateMaternalRequirements(root));updateMaternalRequirements(root);
  const setup=root.querySelector('#family-setup');if(setup)setup.onsubmit=event=>{event.preventDefault();const input=Object.fromEntries(new FormData(setup));input.kind=kind.value;void busy(setup,async()=>{if(store.pending)throw new Error('Sync your pending changes before setting up your personal profile.');const result=await api('family/setup',{method:'POST',proof:store.proof,body:input});store.account=result.account;await store.load();onChange();});};
  const pair=root.querySelector('#family-pair');if(pair)pair.onsubmit=event=>{event.preventDefault();const code=pair.elements.code.value;void busy(pair,async()=>{await api('family/pair',{method:'POST',proof:store.proof,body:{code}});await store.load();onChange();});};
  const code=root.querySelector('#family-code');if(code)code.onclick=()=>void busy(root,async()=>{const result=await api('family/code',{method:'POST',proof:store.proof,body:{}});root.querySelector('#pairing-result').innerHTML=ui`<p>Pairing code</p><strong class="pairing-code">${escape(result.code)}</strong><p>Valid for 15 minutes. Creating a new code cancels the previous one.</p>`;});

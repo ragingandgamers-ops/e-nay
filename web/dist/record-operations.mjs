@@ -42,6 +42,7 @@ function prepareVaccination(next,previous,raw,role){
   if(previous&&previous.approvalStatus!=='Pending verification')throw recordError(403,'Patients can change only pending vaccination requests. Contact clinic staff about approved doses or vaccination history.');
   const cancelling=previous&&raw.approvalStatus==='Cancelled';
   raw.approvalStatus=cancelling?'Cancelled':'Pending verification';
+  raw.requestedVaccine=raw.vaccine;
   raw.preferredDate=raw.preferredDate??previous?.preferredDate??raw.scheduled??'';
   raw.requestNotes=raw.requestNotes??previous?.requestNotes??raw.notes??'';
   raw.reviewNotes=previous?.reviewNotes??'';raw.notes=previous?.notes??'';
@@ -55,7 +56,8 @@ function prepareVaccination(next,previous,raw,role){
   raw.preferredDate=previous?.preferredDate??raw.preferredDate??'';
   raw.requestNotes=previous?.requestNotes??raw.requestNotes??'';
   raw.reviewNotes=raw.reviewNotes??previous?.reviewNotes??'';
-  if(previous?.approvalStatus==='Pending verification'&&raw.approvalStatus==='Approved'){if(vaccineKey(previous.vaccine)!==vaccineKey(raw.vaccine))throw new ValidationError('vaccine','Approve the vaccine the patient requested. Decline with a reason if a different vaccine is needed.');raw.stockMode='clinic';}
+  if(previous?.requestedVaccine!==undefined)raw.requestedVaccine=previous.requestedVaccine;else if(previous?.approvalStatus==='Pending verification')raw.requestedVaccine=previous.vaccine;else delete raw.requestedVaccine;
+  if(previous?.approvalStatus==='Pending verification'&&raw.approvalStatus==='Approved'){if(vaccineKey(previous.vaccine)!==vaccineKey(raw.vaccine)&&![true,'on'].includes(raw.confirmVaccineChange))throw new ValidationError('confirmVaccineChange','Verify the selected inventory vaccine against the patient’s request before approving.');raw.stockMode='clinic';}
   if(raw.approvalStatus!=='Approved'){raw.scheduled='';raw.administered='';delete raw.batchId;delete raw.stockUse;}
  }
 }
