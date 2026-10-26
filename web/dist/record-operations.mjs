@@ -3,9 +3,9 @@ import {TYPES,ValidationError,normalize,validateData,today} from './core.mjs';
 const recordError=(status,message)=>Object.assign(new Error(message),{status});
 const conflict=()=>recordError(409,'This record changed on another device. Your pending changes are preserved. Review or export them before loading the clinic copy.');
 const deny=()=>recordError(403,'You can change only your own family records. Vaccine stock is managed by clinic staff.');
-export function nextProfileId(data,type){
+export function nextProfileId(data,type,reservedIds=[]){
  const prefix=type==='mothers'?'M':'C';
- for(let n=1;n<=999;n++){const id=prefix+String(n).padStart(3,'0');if(!data[type].some(record=>record.id===id))return id;}
+ for(let n=1;n<=999;n++){const id=prefix+String(n).padStart(3,'0');if(!reservedIds.includes(id)&&!data[type].some(record=>record.id===id))return id;}
  throw new ValidationError('id','No profile IDs are available. Contact clinic staff.');
 }
 function canonical(record){return JSON.stringify(record);}
@@ -65,7 +65,7 @@ function prepareVaccination(next,previous,raw,role){
 // The server applies these operations to its current clinic copy. Patients never
 // submit a replacement clinic snapshot. New patient profile IDs are allocated
 // globally, and references in subsequent offline operations are remapped together.
-export function applyRecordOperations(data,operations,{role,allowedIds=[],allocatePatientIds=false,checkBefore=true,now=today()}={}){
+export function applyRecordOperations(data,operations,{role,allowedIds=[],allocatePatientIds=false,checkBefore=true,now=today(),reservedIds=[]}={}){
  if(!['staff','patient'].includes(role))throw deny();
  if(!Array.isArray(operations)||!operations.length||operations.length>500)throw new ValidationError('','Submit between 1 and 500 record changes at a time.');
  const next=validateData(data,now),allowed=new Set(allowedIds),idMap={},newLinks=[];
@@ -95,7 +95,8 @@ export function applyRecordOperations(data,operations,{role,allowedIds=[],alloca
    }
   }
   if(previous)raw.id=previous.id;
-  if(profile&&!previous&&role==='patient'&&allocatePatientIds){const requested=raw.id;if(typeof requested!=='string'||!(type==='mothers'?/^M\d{3}$/:/^C\d{3}$/).test(requested))throw new ValidationError('id','Invalid profile identifier.');raw.id=nextProfileId(next,type);idMap[requested]=raw.id;}
+  if(profile&&!previous&&role==='patient'&&allocatePatientIds){const requested=raw.id;if(typeof requested!=='string'||!(type==='mothers'?/^M\d{3}$/:/^C\d{3}$/).test(requested))throw new ValidationError('id','Invalid profile identifier.');raw.id=nextProfileId(next,type,reservedIds);idMap[requested]=raw.id;}
+  if(profile&&!previous&&reservedIds.includes(raw.id))throw new ValidationError('id','This profile ID is reserved in Trash. Restore that profile or choose another ID.');
   if(!profile&&role==='patient'&&!allowed.has(raw.patient))throw deny();
   if(!profile&&!previous&&(!/^[a-zA-Z0-9-]{16,100}$/.test(raw.id??'')))throw new ValidationError('id','Invalid record identifier.');
   if(!previous&&next[type].some(record=>record.id===raw.id))throw new ValidationError('id','This ID already exists. Open the existing profile to edit it.');

@@ -48,7 +48,7 @@ A mother opens **My profile > Companion access > Create pairing code** and gives
 
 A paired father can view that mother’s personal maternal record and the child records already linked to her account, with their checkups, measurements and vaccinations. He cannot create, edit, request, approve, administer, change stock or replace a workspace; API checks enforce read-only access even with a forged request. Unpaired fathers see the invitation screen with other record navigation hidden. Mothers can disconnect from the same menu. Revocation stops subsequent server reads immediately; a connected father’s view clears on its next successful refresh. A previously downloaded encrypted offline copy cannot be erased remotely. No real production patients are paired by the developer during verification.
 
-The schema upgrade uses new IF NOT EXISTS tables only; it does not rewrite existing accounts or medical records. New API version: form-requirements-v1. The public shell is enay-shell-v22.
+The schema upgrade uses new IF NOT EXISTS tables only; it does not rewrite existing accounts or medical records. New API version: growth-trash-v1. The public shell is enay-shell-v23.
 
 ## Linked family profiles, appearance and staff tasks
 
@@ -99,6 +99,20 @@ A mother selects Pregnant or Not pregnant. Expected delivery date is required on
 Form labels derive their asterisks and optional markers from each live required/disabled/readonly constraint. Clinic approval marks batch, dose and scheduled date required; declining marks the staff response required. External history does not require a clinic batch. Filipino article title/body requirements also update together. English and Filipino labels keep the same canonical values.
 
 Opening a staff vaccination form refreshes clinic records when online with no pending edits. Every inventory batch is listed, with matching request names first; empty/expired batches are disabled unless already allocated to that record. A refresh control updates stock choices without clearing other form values. Differently worded patient requests no longer hide every batch: selecting a different inventory name requires an explicit staff verification checkbox, enforced by the API. The original requested vaccine name is preserved separately from the chosen canonical inventory name. Approval still reserves exactly one dose and administration does not deduct it again. Patient permissions remain request-only.
+
+## Dated child measurements
+
+Add measurement remains the starting action. After choosing a child and date, the form loads an existing entry for that date and uses Update measurement, or presents blank fields with Save new measurement for a new date. Previous dated weight/height are shown separately. Measured again—values are unchanged explicitly copies only those two numbers; assessment and clinical notes are not copied. Changing child/date prompts before discarding unsaved values. Original saved dates remain in the growth chart/history. Existing legacy duplicate rows are preserved with a selector so staff can review each one.
+
+The device and record API reject a new measurement on an already-used child/date, including collisions after offline ID remapping. Concurrent saves are protected by the workspace revision transaction and immutable receipts. A rejected offline change stays encrypted and visible with recovery controls: download the authorized pending copy, then explicitly load the clinic copy. The server never silently overwrites the accepted measurement.
+
+## Staff deletion and recovery
+
+Staff can delete maternal/child profiles, visits, measurements, vaccination records, vaccine batches and clinic guides. Each confirmation describes linked records and stock effects. Deletion is a reversible move to server-side Trash; there is no permanent purge. A profile carries its own visits, growth and vaccination history into Trash. Removing a mother leaves child profiles intact. Removed profile IDs are reserved to prevent a new person receiving an archived identity. Patient links/personal assignments and companion access to removed profiles are revoked; restoring a profile requires staff to verify links again.
+
+Unused reserved doses are refunded once. Administered doses are never refunded. A vaccine batch referenced by an active vaccination cannot be removed. Restoring a refunded reservation restores it as Cancelled without consuming stock; a new approval is required. Restoring administered history requires its referenced batch and never consumes another dose. Stale deletion/restore requests, ID collisions, measurement-date collisions and workspace limits fail atomically. Retried deletion receipt IDs do not repeat stock effects.
+
+Accounts & trash is staff-only, searchable and paginated. Deleting an account deactivates it and revokes its online sessions while keeping clinic records; restoring retains its prior role and requires a fresh sign-in. Companion pairing is not restored. Current-account deletion and last-staff removal are blocked. Previously downloaded offline copies cannot be remotely erased. Delete/restore require an online session with no pending edits. Active JSON backups do not include the separate Trash table. Staff account creation remains a trusted owner operation; there is no public promotion endpoint or embedded staff password.
 
 ## Responsive record forms
 

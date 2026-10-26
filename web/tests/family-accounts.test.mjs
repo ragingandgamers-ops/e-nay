@@ -80,3 +80,15 @@ test('nonpregnant mothers register without a due date, while pregnant registrati
  const raw={username:'not.pregnant',password,kind:'mother',displayName:'Fictional Mother',age:29,pregnancyStatus:'Not pregnant',edd:''};assert.equal((await f.call('register','POST',raw)).status,201);const own=(await f.call('workspace','GET',null,await f.login(raw.username))).value.data.mothers[0];assert.equal(own.edd,'');assert.equal(own.pregnancyStatus,'Not pregnant');
  assert.equal((await f.call('register','POST',{...raw,username:'pregnant.mother',pregnancyStatus:'Pregnant'})).status,400);assert.equal((await f.db.prepare('SELECT count(*) AS n FROM accounts WHERE username=?').bind('pregnant.mother').first()).n,0);
 }finally{f.db.close();}});
+
+test('maternal deletion disconnects the companion, preserves children, and restoration requires relinking',async()=>{const f=await fixture();try{
+ const mother=await f.register('family.mother'),father=await f.register('family.father','father'),staff=await f.login('test.staff'),mid=mother.account.maternalId;
+ assert.equal((await save(f,mother,[newOp('children',{id:'C001',name:'Fictional Child',dob:today(),gender:'Female',motherId:mid,motherName:'Fictional mother',status:'Active'})])).status,200);
+ const code=(await f.call('family/code','POST',{},mother)).value.code;assert.equal((await f.call('family/pair','POST',{code},father)).status,200);
+ const trashId=crypto.randomUUID(),baseRevision=(await f.call('workspace','GET',null,staff)).value.revision;
+ const removed=await f.call('admin/delete','POST',{kind:'record',type:'mothers',id:mid,operationId:trashId,baseRevision},staff);assert.equal(removed.status,200);
+ assert.equal(removed.value.data.mothers.length,0);assert.equal(removed.value.data.children.length,1);
+ const shared=(await f.call('workspace','GET',null,father)).value;assert.equal(shared.family.partner,null);assert.equal(shared.data.children.length,0);
+ const restored=await f.call('admin/restore','POST',{trashId,baseRevision:removed.value.revision},staff);assert.equal(restored.status,200);assert.equal(restored.value.data.mothers.length,1);assert.equal(restored.value.data.children.length,1);
+ assert.equal((await f.call('workspace','GET',null,mother)).value.data.mothers.length,0);assert.equal((await f.call('workspace','GET',null,father)).value.family.partner,null);
+}finally{f.db.close();}});

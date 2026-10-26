@@ -152,6 +152,7 @@ function normalize(type, raw, data, {original = null, historical = false, preser
       r.height = number(raw.height,'height',10,200);
       r.assessment = choice(raw.assessment,'assessment',['Not assessed','Reviewed','Follow-up needed']);
       r.notes = text(raw.notes,'notes',false,2000);
+      if(!historical&&(!original||original.patient!==r.patient||original.date!==r.date)&&data.growth.some(x=>x.id!==original?.id&&x.patient===r.patient&&x.date===r.date)){const error=new ValidationError('date','A measurement already exists for this child and date. Open that entry to update it.');error.status=409;throw error;}
     } else if(type==='guides') {
       r.title=text(raw.title,'title',true,160);
       r.category=choice(raw.category,'category',GUIDE_CATEGORIES);
@@ -273,9 +274,9 @@ const stockStatus = (r,now=today()) => r.expires<now?'Expired':r.stock<=r.thresh
 const recordError=(status,message)=>Object.assign(new Error(message),{status});
 const conflict=()=>recordError(409,'This record changed on another device. Your pending changes are preserved. Review or export them before loading the clinic copy.');
 const deny=()=>recordError(403,'You can change only your own family records. Vaccine stock is managed by clinic staff.');
-function nextProfileId(data,type){
+function nextProfileId(data,type,reservedIds=[]){
  const prefix=type==='mothers'?'M':'C';
- for(let n=1;n<=999;n++){const id=prefix+String(n).padStart(3,'0');if(!data[type].some(record=>record.id===id))return id;}
+ for(let n=1;n<=999;n++){const id=prefix+String(n).padStart(3,'0');if(!reservedIds.includes(id)&&!data[type].some(record=>record.id===id))return id;}
  throw new ValidationError('id','No profile IDs are available. Contact clinic staff.');
 }
 function canonical(record){return JSON.stringify(record);}
@@ -335,7 +336,7 @@ function prepareVaccination(next,previous,raw,role){
 // The server applies these operations to its current clinic copy. Patients never
 // submit a replacement clinic snapshot. New patient profile IDs are allocated
 // globally, and references in subsequent offline operations are remapped together.
-function applyRecordOperations(data,operations,{role,allowedIds=[],allocatePatientIds=false,checkBefore=true,now=today()}={}){
+function applyRecordOperations(data,operations,{role,allowedIds=[],allocatePatientIds=false,checkBefore=true,now=today(),reservedIds=[]}={}){
  if(!['staff','patient'].includes(role))throw deny();
  if(!Array.isArray(operations)||!operations.length||operations.length>500)throw new ValidationError('','Submit between 1 and 500 record changes at a time.');
  const next=validateData(data,now),allowed=new Set(allowedIds),idMap={},newLinks=[];
@@ -365,7 +366,8 @@ function applyRecordOperations(data,operations,{role,allowedIds=[],allocatePatie
    }
   }
   if(previous)raw.id=previous.id;
-  if(profile&&!previous&&role==='patient'&&allocatePatientIds){const requested=raw.id;if(typeof requested!=='string'||!(type==='mothers'?/^M\d{3}$/:/^C\d{3}$/).test(requested))throw new ValidationError('id','Invalid profile identifier.');raw.id=nextProfileId(next,type);idMap[requested]=raw.id;}
+  if(profile&&!previous&&role==='patient'&&allocatePatientIds){const requested=raw.id;if(typeof requested!=='string'||!(type==='mothers'?/^M\d{3}$/:/^C\d{3}$/).test(requested))throw new ValidationError('id','Invalid profile identifier.');raw.id=nextProfileId(next,type,reservedIds);idMap[requested]=raw.id;}
+  if(profile&&!previous&&reservedIds.includes(raw.id))throw new ValidationError('id','This profile ID is reserved in Trash. Restore that profile or choose another ID.');
   if(!profile&&role==='patient'&&!allowed.has(raw.patient))throw deny();
   if(!profile&&!previous&&(!/^[a-zA-Z0-9-]{16,100}$/.test(raw.id??'')))throw new ValidationError('id','Invalid record identifier.');
   if(!previous&&next[type].some(record=>record.id===raw.id))throw new ValidationError('id','This ID already exists. Open the existing profile to edit it.');
@@ -424,6 +426,13 @@ CREATE TABLE IF NOT EXISTS record_sync_maps (
 CREATE TABLE IF NOT EXISTS auth_limits (
  bucket TEXT PRIMARY KEY, attempts INTEGER NOT NULL, resets_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS trash_entries (
+ id TEXT PRIMARY KEY, kind TEXT NOT NULL, summary TEXT NOT NULL, body TEXT NOT NULL,
+ deleted_by TEXT NOT NULL, deleted_at INTEGER NOT NULL, restored_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS profile_reservations (
+ profile_id TEXT PRIMARY KEY, trash_id TEXT NOT NULL REFERENCES trash_entries(id)
+);
 CREATE TABLE IF NOT EXISTS audit_events (
  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, action TEXT NOT NULL,
  revision TEXT, created_at INTEGER NOT NULL
@@ -432,8 +441,90 @@ INSERT OR IGNORE INTO workspace(id,revision,body,updated_at)
 VALUES('clinic','initial','{"mothers":[],"children":[],"visits":[],"vaccines":[],"growth":[],"inventory":[]}',0);
 `;
 
+
+const trashFailure=message=>Object.assign(new Error(message),{status:409});
+function planRecordDeletion(source,type,id){
+ if(!TYPES.includes(type))throw trashFailure('Choose a valid record type.');
+ const data=validateData(source),target=data[type].find(r=>r.id===id);if(!target)throw trashFailure('This record is no longer available. Refresh the clinic copy.');
+ const records=Object.fromEntries(TYPES.map(t=>[t,[]])),profileIds=['mothers','children'].includes(type)?[id]:[];
+ if(type==='inventory'&&data.vaccines.some(v=>v.stockUse?.batchId===id))throw trashFailure('This batch is referenced by a vaccination. Move those vaccination records to Trash first, or keep the batch for their history.');
+ for(const t of TYPES){const removing=data[t].filter(r=>(t===type&&r.id===id)||(profileIds.length&&['visits','vaccines','growth'].includes(t)&&r.patient===id));records[t]=removing;const ids=new Set(removing.map(r=>r.id));data[t]=data[t].filter(r=>!ids.has(r.id));}
+ let refundedDoses=0;
+ for(const v of records.vaccines)if(v.stockUse?.kind==='reserved'&&!v.administered){const batch=data.inventory.find(b=>b.id===v.stockUse.batchId);if(!batch)throw trashFailure('The reserved vaccine batch needs review before this record can be removed.');if(batch.stock>=100000)throw trashFailure('Returning a reserved dose would exceed the stock limit. Review inventory first.');batch.stock++;refundedDoses++;}
+ const person=[...source.mothers,...source.children].find(p=>p.id===target.patient);const summary=['mothers','children'].includes(type)?target.name+' · '+id:type==='inventory'?target.vaccine+' · '+target.batch:person?person.name+' · '+(target.vaccine??target.date??id):target.title??target.vaccine??id;
+ return {data:validateData(data),records,profileIds,refundedDoses,summary,counts:Object.fromEntries(TYPES.map(t=>[t,records[t].length]))};
+}
+function planRecordRestore(source,payload){
+ const data=validateData(source),records=structuredClone(payload.records);let resetReservations=0;
+ for(const type of TYPES)for(const record of records[type]??[]){if(data[type].some(r=>r.id===record.id))throw trashFailure('A record with this ID is already active. Nothing was overwritten.');if(type==='growth'&&data.growth.some(r=>r.patient===record.patient&&r.date===record.date))throw trashFailure('A measurement already exists for this child and date. Review that active entry before restoring this one.');if(type==='vaccines'&&record.stockUse?.kind==='reserved'&&!record.administered){record.approvalStatus='Cancelled';record.scheduled='';record.administered='';delete record.batchId;delete record.stockUse;resetReservations++;}}
+ for(const type of TYPES)data[type].push(...records[type]);
+ for(const v of data.vaccines)if(v.stockUse&&!data.inventory.some(b=>b.id===v.stockUse.batchId))throw trashFailure('Restore the referenced vaccine batch before restoring this vaccination history.');
+ try{return {data:validateData(data),resetReservations};}catch(error){throw trashFailure('Restore needs review: '+error.message);}
+}
+
+
+
+async function handleAdmin(request,env,account,path,method,{bodyOf,reply,ApiError,workspaceFor}){
+ const db=env.DB;if(account.role!=='staff')throw new ApiError(403,'Clinic administration is available to staff only.');
+ if(path==='/api/admin/accounts'&&method==='GET'){const rows=await db.prepare('SELECT id,username,display_name,role,active FROM accounts ORDER BY username').all();return reply({accounts:rows.results.map(r=>({id:r.id,username:r.username,displayName:r.display_name,role:r.role,active:Boolean(r.active),current:r.id===account.id}))});}
+ if(path==='/api/admin/trash'&&method==='GET'){const rows=await db.prepare("SELECT id,kind,summary,deleted_at,json_extract(body,'$.type') AS record_type FROM trash_entries WHERE restored_at IS NULL ORDER BY deleted_at DESC").all();return reply({entries:rows.results});}
+ if(!['/api/admin/delete','/api/admin/restore'].includes(path)||method!=='POST')throw new ApiError(404,'This operation is not available.');
+ const input=await bodyOf(request),current=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
+ const conditional=" WHERE EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)";
+ if(path==='/api/admin/delete'){
+  if(typeof input.operationId!=='string'||!/^[a-zA-Z0-9-]{16,80}$/.test(input.operationId))throw new ApiError(400,'The deletion identifier is invalid.');
+  const receipt=await db.prepare("SELECT * FROM trash_entries WHERE id=?").bind(input.operationId).first();if(receipt){const prior=JSON.parse(receipt.body);if(receipt.deleted_by!==account.id||receipt.kind!==input.kind||prior.id!==input.id||prior.type!==(input.type??null))throw new ApiError(409,'This deletion identifier is already in use.');return reply({deleted:true,...await workspaceFor(db,account)});}
+  if(input.baseRevision!==current.revision)throw new ApiError(409,'Clinic records changed. Refresh and review the deletion again.');
+  const revision=crypto.randomUUID(),now=Date.now(),statements=[],conditionId=input.operationId;let payload,summary,kind=input.kind;
+  if(kind==='record'){
+   let plan;try{plan=planRecordDeletion(JSON.parse(current.body),input.type,input.id);}catch(error){throw new ApiError(error.status??400,error.message);}
+   payload={id:input.id,type:input.type,records:plan.records,profileIds:plan.profileIds,refundedDoses:plan.refundedDoses};summary=plan.summary;
+   statements.push(db.prepare("UPDATE workspace SET body=?,revision=?,last_operation=?,updated_at=? WHERE id='clinic' AND revision=?").bind(JSON.stringify(plan.data),revision,conditionId,now,current.revision));
+   statements.push(db.prepare('INSERT INTO trash_entries(id,kind,summary,body,deleted_by,deleted_at) SELECT ?,?,?,?,?,?'+conditional).bind(conditionId,kind,summary,JSON.stringify(payload),account.id,now,conditionId));
+   for(const id of plan.profileIds)statements.push(db.prepare('INSERT INTO profile_reservations(profile_id,trash_id) SELECT ?,?'+conditional).bind(id,conditionId,conditionId));
+   const ids=JSON.stringify(plan.profileIds);
+   statements.push(db.prepare("DELETE FROM companion_links WHERE mother_id IN (SELECT account_id FROM family_accounts WHERE maternal_id IN (SELECT value FROM json_each(?))) AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(ids,conditionId));
+   statements.push(db.prepare("DELETE FROM pairing_codes WHERE mother_id IN (SELECT account_id FROM family_accounts WHERE maternal_id IN (SELECT value FROM json_each(?))) AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(ids,conditionId));
+   statements.push(db.prepare("UPDATE family_accounts SET maternal_id=NULL WHERE maternal_id IN (SELECT value FROM json_each(?)) AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(ids,conditionId));
+   statements.push(db.prepare("DELETE FROM patient_links WHERE patient_id IN (SELECT value FROM json_each(?)) AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(ids,conditionId));
+  }else if(kind==='account'){
+   const target=await db.prepare("SELECT id,username,display_name,role,active FROM accounts WHERE id=?").bind(input.id??'').first();if(!target?.active)throw new ApiError(409,'This account is already inactive. Refresh the account list.');
+   if(target.id===account.id)throw new ApiError(409,'You cannot delete the account you are currently using.');
+   if(target.role==='staff'&&(await db.prepare("SELECT count(*) AS n FROM accounts WHERE role='staff' AND active=1").first()).n<=1)throw new ApiError(409,'Keep at least one active staff account.');
+   payload={id:target.id,type:null,role:target.role};summary=target.display_name+' · @'+target.username;
+   statements.push(db.prepare("UPDATE workspace SET revision=?,last_operation=?,updated_at=? WHERE id='clinic' AND revision=? AND EXISTS(SELECT 1 FROM accounts WHERE id=? AND active=1 AND role=? AND id<>? AND (role<>'staff' OR (SELECT count(*) FROM accounts WHERE active=1 AND role='staff')>1))").bind(revision,conditionId,now,current.revision,target.id,target.role,account.id));
+   statements.push(db.prepare("UPDATE accounts SET active=0 WHERE id=? AND active=1 AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(target.id,conditionId));
+   statements.push(db.prepare('DELETE FROM sessions WHERE account_id=?'+conditional.replace(' WHERE EXISTS',' AND EXISTS')).bind(target.id,conditionId));
+   statements.push(db.prepare("DELETE FROM companion_links WHERE (father_id=? OR mother_id=?) AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(target.id,target.id,conditionId));
+   statements.push(db.prepare("DELETE FROM pairing_codes WHERE mother_id=? AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(target.id,conditionId));
+   statements.push(db.prepare('INSERT INTO trash_entries(id,kind,summary,body,deleted_by,deleted_at) SELECT ?,?,?,?,?,?'+conditional).bind(conditionId,kind,summary,JSON.stringify(payload),account.id,now,conditionId));
+  }else throw new ApiError(400,'Choose a record or account to delete.');
+  statements.push(db.prepare("INSERT INTO audit_events(id,account_id,action,revision,created_at) SELECT ?,?,'move-to-trash',?,?"+conditional).bind(conditionId,account.id,revision,now,conditionId));
+  let results;try{results=await db.batch(statements);}catch{throw new ApiError(409,'The deletion could not be applied. Previous records are intact; refresh and review again.');}
+  if(results[0].meta.changes!==1)throw new ApiError(409,'Clinic records or staff access changed. Refresh and review the deletion again.');
+  return reply({deleted:true,...await workspaceFor(db,account)});
+ }
+ const entry=await db.prepare("SELECT * FROM trash_entries WHERE id=?").bind(input.trashId??'').first();if(!entry)throw new ApiError(404,'This item is not in Trash.');if(entry.restored_at!==null)return reply({restored:true,...await workspaceFor(db,account)});
+ if(input.baseRevision!==current.revision)throw new ApiError(409,'Clinic records changed. Refresh and review the restore again.');
+ const payload=JSON.parse(entry.body),operation=crypto.randomUUID(),revision=crypto.randomUUID(),now=Date.now(),statements=[];let resetReservations=0;
+ if(entry.kind==='record'){
+  let plan;try{plan=planRecordRestore(JSON.parse(current.body),payload);}catch(error){throw new ApiError(error.status??400,error.message);}resetReservations=plan.resetReservations;if(new TextEncoder().encode(JSON.stringify(plan.data)).length>1498000)throw new ApiError(413,'The restored workspace would exceed its size limit. Nothing was changed.');
+  statements.push(db.prepare("UPDATE workspace SET body=?,revision=?,last_operation=?,updated_at=? WHERE id='clinic' AND revision=?").bind(JSON.stringify(plan.data),revision,operation,now,current.revision));
+  statements.push(db.prepare('DELETE FROM profile_reservations WHERE trash_id=?'+conditional.replace(' WHERE EXISTS',' AND EXISTS')).bind(entry.id,operation));
+ }else{
+  const target=await db.prepare("SELECT role,active FROM accounts WHERE id=?").bind(payload.id).first();if(!target||target.role!==payload.role)throw new ApiError(409,'This account needs an administrator review before restoration.');
+  statements.push(db.prepare("UPDATE workspace SET revision=?,last_operation=?,updated_at=? WHERE id='clinic' AND revision=?").bind(revision,operation,now,current.revision));
+  statements.push(db.prepare('UPDATE accounts SET active=1 WHERE id=?'+conditional.replace(' WHERE EXISTS',' AND EXISTS')).bind(payload.id,operation));
+ }
+ statements.push(db.prepare("UPDATE trash_entries SET restored_at=? WHERE id=? AND restored_at IS NULL AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(now,entry.id,operation));
+ statements.push(db.prepare("INSERT INTO audit_events(id,account_id,action,revision,created_at) SELECT ?,?,'restore-from-trash',?,?"+conditional).bind(operation,account.id,revision,now,operation));
+ const changed=await db.batch(statements);if(changed[0].meta.changes!==1)throw new ApiError(409,'Clinic records changed. Refresh and review the restore again.');
+ return reply({restored:true,resetReservations,...await workspaceFor(db,account)});
+}
+
 import {scrypt,randomBytes,createHash,timingSafeEqual} from 'node:crypto';
 import {Buffer} from 'node:buffer';
+
 
 
 
@@ -494,7 +585,7 @@ async function workspaceFor(db,account){
  const row=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
  const data=validateData(JSON.parse(row.body));
  const catalog=[...new Set(data.inventory.map(batch=>batch.vaccine))].sort();
- if(account.role==='staff')return {revision:row.revision,data,catalog,savedAt:row.updated_at};
+ if(account.role==='staff')return {revision:row.revision,data,catalog,savedAt:row.updated_at,reservedProfileIds:(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id)};
  const allowed=new Set(await familyAllowed(db,account)),filtered=emptyData();
  filtered.mothers=data.mothers.filter(record=>allowed.has(record.id));
  filtered.children=data.children.filter(record=>allowed.has(record.id));
@@ -508,6 +599,7 @@ async function saveWorkspace(db,account,input){
  const existing=await db.prepare('SELECT * FROM sync_operations WHERE id=?').bind(input.operationId).first();
  if(existing){if(existing.account_id!==account.id)throw new ApiError(409,'This synchronization identifier is already in use.');return {revision:existing.revision};}
  let data;try{data=validateData(input.data);}catch(error){throw new ApiError(400,error.message);}
+  const reservedIds=(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id);if([...data.mothers,...data.children].some(r=>reservedIds.includes(r.id)))throw new ApiError(409,'An imported profile ID is reserved in Trash. Restore or review that profile first.');
   // Old clients and pre-guide backups must not erase current clinic articles.
   if(input.data.guides===undefined)data.guides=validateData(JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body)).guides;
  // Older clients send whole snapshots without newer provenance/stock fields.
@@ -549,7 +641,8 @@ async function saveRecords(db,account,input){
    if(account.kind||allowedIds.some(id=>id.startsWith('M')))throw new ApiError(403,'Your account has one personal maternal record. Open it to update your details.');
    if(input.operations.filter(op=>op.type==='mothers'&&op.originalId===null).length>1)throw new ApiError(400,'Create only one personal maternal record.');
   }
-  let applied;try{applied=applyRecordOperations(JSON.parse(current.body),input.operations,{role:account.role,allowedIds,allocatePatientIds:true});}catch(error){throw new ApiError(error.status??400,error.message);}
+  const reservedIds=(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id);
+  let applied;try{applied=applyRecordOperations(JSON.parse(current.body),input.operations,{role:account.role,allowedIds,allocatePatientIds:true,reservedIds});}catch(error){throw new ApiError(error.status??400,error.message);}
   const body=JSON.stringify(applied.data),revision=crypto.randomUUID(),now=Date.now();
   if(new TextEncoder().encode(body).length>MAX_BODY-2000)throw new ApiError(413,'The workspace is too large to synchronize. Your previous clinic records are intact.');
   const condition=" WHERE EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)";
@@ -611,7 +704,7 @@ async function setupFamily(db,account,input,registration=null){
      const linked=await db.prepare("SELECT patient_id FROM patient_links WHERE account_id=? AND patient_id LIKE 'M%'").bind(account.id).all();
      if(linked.results.some(l=>data.mothers.some(m=>m.id===l.patient_id)))throw new ApiError(400,'Choose your existing maternal record to avoid creating a duplicate.');
     }
-    maternalId=nextProfileId(data,'mothers');
+    maternalId=nextProfileId(data,'mothers',(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id));
     let record;try{record=normalize('mothers',{id:maternalId,name:account.display_name,age:input.age,edd:input.edd,...(input.pregnancyStatus!==undefined?{pregnancyStatus:input.pregnancyStatus}:{}),status:'Active',contact:input.contact??'',barangay:input.barangay??''},data);}catch(error){throw new ApiError(400,error.message);}
     record.updatedByRole='patient';data.mothers.push(record);try{validateData(data);}catch(error){throw new ApiError(400,error.message);}created=true;
    }
@@ -678,7 +771,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'form-requirements-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'growth-trash-v1'});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
   if(raw.role&&raw.role!=='patient')throw new ApiError(403,'Staff access is assigned by the clinic; it cannot be selected during registration.');
@@ -708,6 +801,7 @@ async function api(request,env){
   return reply({account:publicAccount(account),proof,expiresAt},200,{'Set-Cookie':`${cookieName(request,env)}=${device}; Path=/; HttpOnly; SameSite=Strict; Max-Age=1209600${isDevelopment(request,env)?'':'; Secure'}`});
  }
  const account=await accountFor(request,env);
+ if(path.startsWith('/api/admin/'))return handleAdmin(request,env,account,path,method,{bodyOf,reply,ApiError,workspaceFor});
  if(path.startsWith('/api/family'))return familyApi(request,env,account,path,method);
  if(path==='/api/me'&&method==='GET')return reply({account:publicAccount(account)});
  if(path==='/api/logout'&&method==='POST'){

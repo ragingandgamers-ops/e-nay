@@ -3,6 +3,7 @@ import {Buffer} from 'node:buffer';
 import {validateData,emptyData,normalize} from '../dist/core.mjs';
 import {applyRecordOperations,nextProfileId} from '../dist/record-operations.mjs';
 import {SCHEMA} from './schema.mjs';
+import {handleAdmin} from './admin.mjs';
 
 const readyDatabases=new WeakMap();
 const MAX_BODY=1500000;
@@ -60,7 +61,7 @@ async function workspaceFor(db,account){
  const row=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
  const data=validateData(JSON.parse(row.body));
  const catalog=[...new Set(data.inventory.map(batch=>batch.vaccine))].sort();
- if(account.role==='staff')return {revision:row.revision,data,catalog,savedAt:row.updated_at};
+ if(account.role==='staff')return {revision:row.revision,data,catalog,savedAt:row.updated_at,reservedProfileIds:(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id)};
  const allowed=new Set(await familyAllowed(db,account)),filtered=emptyData();
  filtered.mothers=data.mothers.filter(record=>allowed.has(record.id));
  filtered.children=data.children.filter(record=>allowed.has(record.id));
@@ -74,6 +75,7 @@ async function saveWorkspace(db,account,input){
  const existing=await db.prepare('SELECT * FROM sync_operations WHERE id=?').bind(input.operationId).first();
  if(existing){if(existing.account_id!==account.id)throw new ApiError(409,'This synchronization identifier is already in use.');return {revision:existing.revision};}
  let data;try{data=validateData(input.data);}catch(error){throw new ApiError(400,error.message);}
+  const reservedIds=(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id);if([...data.mothers,...data.children].some(r=>reservedIds.includes(r.id)))throw new ApiError(409,'An imported profile ID is reserved in Trash. Restore or review that profile first.');
   // Old clients and pre-guide backups must not erase current clinic articles.
   if(input.data.guides===undefined)data.guides=validateData(JSON.parse((await db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body)).guides;
  // Older clients send whole snapshots without newer provenance/stock fields.
@@ -115,7 +117,8 @@ async function saveRecords(db,account,input){
    if(account.kind||allowedIds.some(id=>id.startsWith('M')))throw new ApiError(403,'Your account has one personal maternal record. Open it to update your details.');
    if(input.operations.filter(op=>op.type==='mothers'&&op.originalId===null).length>1)throw new ApiError(400,'Create only one personal maternal record.');
   }
-  let applied;try{applied=applyRecordOperations(JSON.parse(current.body),input.operations,{role:account.role,allowedIds,allocatePatientIds:true});}catch(error){throw new ApiError(error.status??400,error.message);}
+  const reservedIds=(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id);
+  let applied;try{applied=applyRecordOperations(JSON.parse(current.body),input.operations,{role:account.role,allowedIds,allocatePatientIds:true,reservedIds});}catch(error){throw new ApiError(error.status??400,error.message);}
   const body=JSON.stringify(applied.data),revision=crypto.randomUUID(),now=Date.now();
   if(new TextEncoder().encode(body).length>MAX_BODY-2000)throw new ApiError(413,'The workspace is too large to synchronize. Your previous clinic records are intact.');
   const condition=" WHERE EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)";
@@ -177,7 +180,7 @@ async function setupFamily(db,account,input,registration=null){
      const linked=await db.prepare("SELECT patient_id FROM patient_links WHERE account_id=? AND patient_id LIKE 'M%'").bind(account.id).all();
      if(linked.results.some(l=>data.mothers.some(m=>m.id===l.patient_id)))throw new ApiError(400,'Choose your existing maternal record to avoid creating a duplicate.');
     }
-    maternalId=nextProfileId(data,'mothers');
+    maternalId=nextProfileId(data,'mothers',(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id));
     let record;try{record=normalize('mothers',{id:maternalId,name:account.display_name,age:input.age,edd:input.edd,...(input.pregnancyStatus!==undefined?{pregnancyStatus:input.pregnancyStatus}:{}),status:'Active',contact:input.contact??'',barangay:input.barangay??''},data);}catch(error){throw new ApiError(400,error.message);}
     record.updatedByRole='patient';data.mothers.push(record);try{validateData(data);}catch(error){throw new ApiError(400,error.message);}created=true;
    }
@@ -244,7 +247,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'form-requirements-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'growth-trash-v1'});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
   if(raw.role&&raw.role!=='patient')throw new ApiError(403,'Staff access is assigned by the clinic; it cannot be selected during registration.');
@@ -274,6 +277,7 @@ async function api(request,env){
   return reply({account:publicAccount(account),proof,expiresAt},200,{'Set-Cookie':`${cookieName(request,env)}=${device}; Path=/; HttpOnly; SameSite=Strict; Max-Age=1209600${isDevelopment(request,env)?'':'; Secure'}`});
  }
  const account=await accountFor(request,env);
+ if(path.startsWith('/api/admin/'))return handleAdmin(request,env,account,path,method,{bodyOf,reply,ApiError,workspaceFor});
  if(path.startsWith('/api/family'))return familyApi(request,env,account,path,method);
  if(path==='/api/me'&&method==='GET')return reply({account:publicAccount(account)});
  if(path==='/api/logout'&&method==='POST'){

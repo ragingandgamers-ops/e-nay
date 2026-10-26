@@ -40,6 +40,13 @@ CREATE TABLE IF NOT EXISTS record_sync_maps (
 CREATE TABLE IF NOT EXISTS auth_limits (
  bucket TEXT PRIMARY KEY, attempts INTEGER NOT NULL, resets_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS trash_entries (
+ id TEXT PRIMARY KEY, kind TEXT NOT NULL, summary TEXT NOT NULL, body TEXT NOT NULL,
+ deleted_by TEXT NOT NULL, deleted_at INTEGER NOT NULL, restored_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS profile_reservations (
+ profile_id TEXT PRIMARY KEY, trash_id TEXT NOT NULL REFERENCES trash_entries(id)
+);
 CREATE TABLE IF NOT EXISTS audit_events (
  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, action TEXT NOT NULL,
  revision TEXT, created_at INTEGER NOT NULL

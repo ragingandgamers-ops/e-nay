@@ -151,6 +151,7 @@ export function normalize(type, raw, data, {original = null, historical = false,
       r.height = number(raw.height,'height',10,200);
       r.assessment = choice(raw.assessment,'assessment',['Not assessed','Reviewed','Follow-up needed']);
       r.notes = text(raw.notes,'notes',false,2000);
+      if(!historical&&(!original||original.patient!==r.patient||original.date!==r.date)&&data.growth.some(x=>x.id!==original?.id&&x.patient===r.patient&&x.date===r.date)){const error=new ValidationError('date','A measurement already exists for this child and date. Open that entry to update it.');error.status=409;throw error;}
     } else if(type==='guides') {
       r.title=text(raw.title,'title',true,160);
       r.category=choice(raw.category,'category',GUIDE_CATEGORIES);
