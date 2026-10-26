@@ -48,7 +48,7 @@ A mother opens **My profile > Companion access > Create pairing code** and gives
 
 A paired father can view that mother’s personal maternal record and the child records already linked to her account, with their checkups, measurements and vaccinations. He cannot create, edit, request, approve, administer, change stock or replace a workspace; API checks enforce read-only access even with a forged request. Unpaired fathers see the invitation screen with other record navigation hidden. Mothers can disconnect from the same menu. Revocation stops subsequent server reads immediately; a connected father’s view clears on its next successful refresh. A previously downloaded encrypted offline copy cannot be erased remotely. No real production patients are paired by the developer during verification.
 
-The schema upgrade uses new IF NOT EXISTS tables only; it does not rewrite existing accounts or medical records. New API version: growth-trash-v1. The public shell is enay-shell-v23.
+The schema upgrade uses new IF NOT EXISTS tables only; it does not rewrite existing accounts or medical records. New API version: companions-v2. The public shell is enay-shell-v24.
 
 ## Linked family profiles, appearance and staff tasks
 
@@ -99,6 +99,12 @@ A mother selects Pregnant or Not pregnant. Expected delivery date is required on
 Form labels derive their asterisks and optional markers from each live required/disabled/readonly constraint. Clinic approval marks batch, dose and scheduled date required; declining marks the staff response required. External history does not require a clinic batch. Filipino article title/body requirements also update together. English and Filipino labels keep the same canonical values.
 
 Opening a staff vaccination form refreshes clinic records when online with no pending edits. Every inventory batch is listed, with matching request names first; empty/expired batches are disabled unless already allocated to that record. A refresh control updates stock choices without clearing other form values. Differently worded patient requests no longer hide every batch: selecting a different inventory name requires an explicit staff verification checkbox, enforced by the API. The original requested vaccine name is preserved separately from the chosen canonical inventory name. Approval still reserves exactly one dose and administration does not deduct it again. Patient permissions remain request-only.
+
+## Companion capacity
+
+A mother can invite at most 3 read-only companions. Each companion still connects to one mother. Every invitation is single-use and expires after 15 minutes; creating a new invitation replaces the previous unredeemed code. The Companion access screen lists connected names/usernames and individual Disconnect controls, shows the current count, and disables invitations at capacity. The server checks the limit when issuing and redeeming codes; the redemption count check runs inside the insertion statement so concurrent requests cannot overfill the final slot.
+
+Existing pairings migrate from the older unique-mother table in one transactional batch without changing accounts or care records. Individual removal preserves the other companions; an older client that omits a companion ID cannot remove multiple people at once. Disconnecting cancels the current invitation. Previously downloaded authorized offline copies cannot be remotely erased. English and Filipino screens share the same permissions and limit.
 
 ## Dated child measurements
 

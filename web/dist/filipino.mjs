@@ -925,5 +925,14 @@ export const filipino={
 "This batch is referenced by a vaccination. Move those vaccination records to Trash first, or keep the batch for their history.":"Ginagamit ang pangkat na ito sa rekord ng pagbabakuna. Ilipat muna sa Basurahan ang mga rekord na iyon o panatilihin ang pangkat para sa kasaysayan.",
 "A measurement already exists for this child and date. Review that active entry before restoring this one.":"May aktibong sukat na para sa batang ito sa petsang ito. Suriin muna iyon bago ibalik ang rekord na ito.",
 "Restore the referenced vaccine batch before restoring this vaccination history.":"Ibalik muna ang kaugnay na pangkat ng bakuna bago ang kasaysayang ito.",
-"A record with this ID is already active. Nothing was overwritten.":"May aktibong rekord nang may ganitong ID. Walang napalitang rekord."
+"A record with this ID is already active. Nothing was overwritten.":"May aktibong rekord nang may ganitong ID. Walang napalitang rekord.",
+"{count} of 3 companions connected":"{count} sa 3 kasama ang nakakonekta",
+"Invite up to 3 companions to view your maternal and linked child records, checkups and vaccinations. They cannot edit them.":"Mag-anyaya ng hanggang 3 kasama na maaaring tumingin sa iyong rekord at mga kaugnay na rekord ng anak, checkup at bakuna. Hindi nila mababago ang mga ito.",
+"No companions connected yet.":"Wala pang nakakonektang kasama.",
+"You have reached the limit of 3 companions. Disconnect one before inviting someone else.":"Naabot mo na ang limitasyong 3 kasama. Alisin muna ang access ng isa bago mag-anyaya ng iba.",
+"Share each pairing code only with the person you want to invite. Each code can be used once.":"Ibahagi ang bawat pairing code sa taong nais mong anyayahan lamang. Isang beses lang magagamit ang bawat code.",
+"Disconnecting stops future cloud access. A copy already downloaded to their device cannot be remotely erased.":"Kapag inalis ang access, hindi na nila makukuha ang mga rekord mula sa cloud. Hindi mabubura mula rito ang kopyang na-download na sa kanilang device.",
+"Disconnect {name} from your records?":"Alisin ang access ni {name} sa iyong mga rekord?",
+"Read-only":"Para sa pagtingin lamang",
+"Choose the companion you want to disconnect.":"Piliin ang kasama na nais mong alisin ang access.",
 };

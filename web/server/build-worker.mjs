@@ -7,7 +7,7 @@ const trashPlan=(await readFile(new URL('../dist/trash-plan.mjs',import.meta.url
 const admin=(await readFile(new URL('./admin.mjs',import.meta.url),'utf8')).replace("import {validateData} from '../dist/core.mjs';",'').replace("import {planRecordDeletion,planRecordRestore} from '../dist/trash-plan.mjs';",'');
 const schema=await readFile(new URL('./schema.mjs',import.meta.url),'utf8');
 let worker=await readFile(new URL('./worker.mjs',import.meta.url),'utf8');
-for(const statement of ["import {validateData,emptyData,normalize} from '../dist/core.mjs';","import {applyRecordOperations,nextProfileId} from '../dist/record-operations.mjs';","import {SCHEMA} from './schema.mjs';","import {handleAdmin} from './admin.mjs';"]){
+for(const statement of ["import {validateData,emptyData,normalize} from '../dist/core.mjs';","import {applyRecordOperations,nextProfileId} from '../dist/record-operations.mjs';","import {SCHEMA,MAX_COMPANIONS,migrateCompanions} from './schema.mjs';","import {handleAdmin} from './admin.mjs';"]){
  if(!worker.includes(statement))throw new Error('Worker imports changed; update the explicit build inputs.');
  worker=worker.replace(statement,'');
 }

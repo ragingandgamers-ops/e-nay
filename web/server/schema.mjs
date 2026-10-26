@@ -12,8 +12,9 @@ CREATE TABLE IF NOT EXISTS family_accounts (
 );
 CREATE TABLE IF NOT EXISTS companion_links (
  father_id TEXT PRIMARY KEY REFERENCES accounts(id),
- mother_id TEXT NOT NULL UNIQUE REFERENCES accounts(id), created_at INTEGER NOT NULL
+ mother_id TEXT NOT NULL REFERENCES accounts(id), created_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS companion_links_mother ON companion_links(mother_id);
 CREATE TABLE IF NOT EXISTS pairing_codes (
  mother_id TEXT PRIMARY KEY REFERENCES accounts(id),
  code_hash TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL
@@ -54,3 +55,20 @@ CREATE TABLE IF NOT EXISTS audit_events (
 INSERT OR IGNORE INTO workspace(id,revision,body,updated_at)
 VALUES('clinic','initial','{"mothers":[],"children":[],"visits":[],"vaccines":[],"growth":[],"inventory":[]}',0);
 `;
+
+
+export const MAX_COMPANIONS=3;
+// Older deployments made mother_id UNIQUE. Copy and replace that table in one
+// transaction; retain every existing pairing and leave all care records alone.
+// Concurrent initializations repeat a complete copy rather than dropping rows.
+export async function migrateCompanions(db){
+ const table=await db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='companion_links'").first();
+ if(!/mother_id\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(table?.sql??''))return;
+ await db.batch([
+  db.prepare("CREATE TABLE IF NOT EXISTS companion_links_migration (father_id TEXT PRIMARY KEY REFERENCES accounts(id),mother_id TEXT NOT NULL REFERENCES accounts(id),created_at INTEGER NOT NULL)"),
+  db.prepare("INSERT INTO companion_links_migration(father_id,mother_id,created_at) SELECT father_id,mother_id,created_at FROM companion_links"),
+  db.prepare("DROP TABLE companion_links"),
+  db.prepare("ALTER TABLE companion_links_migration RENAME TO companion_links"),
+  db.prepare("CREATE INDEX IF NOT EXISTS companion_links_mother ON companion_links(mother_id)")
+ ]);
+}

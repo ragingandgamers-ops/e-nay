@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker,{passwordHash} from '../server/worker.mjs';
 import {localDatabase} from '../server/local-db.mjs';
-import {SCHEMA} from '../server/schema.mjs';
+import {SCHEMA,migrateCompanions} from '../server/schema.mjs';
 import {today} from '../dist/core.mjs';
 const password='Fictional-test-password-2026!',origin='https://enay.test';
 const encoded=await passwordHash(password);
-async function fixture(){
- const db=localDatabase();await db.exec(SCHEMA);let n=0;
+async function fixture({legacy=false}={}){
+ const db=localDatabase();await db.exec(legacy?SCHEMA.replace('mother_id TEXT NOT NULL REFERENCES accounts(id), created_at INTEGER NOT NULL','mother_id TEXT NOT NULL UNIQUE REFERENCES accounts(id), created_at INTEGER NOT NULL'):SCHEMA);let n=0;
  await db.prepare("INSERT INTO accounts(id,username,display_name,password_hash,role,created_at) VALUES('staff','test.staff','Fictional Staff',?,'staff',0)").bind(encoded).run();
  const call=async(path,method='GET',body,session)=>{const r=await worker.fetch(new Request(origin+'/api/'+path,{method,headers:{Origin:origin,'CF-Connecting-IP':'192.0.2.'+(++n),'Content-Type':'application/json',...(session?{Cookie:session.cookie,'X-Enay-Access':session.proof}:{})},...(body?{body:JSON.stringify(body)}:{})}),{DB:db,ASSETS:{fetch:()=>new Response('test')}});return {status:r.status,value:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};};
  const login=async(username)=>{const r=await call('login','POST',{username,password});assert.equal(r.status,200);return {...r.value,cookie:r.cookie};};
@@ -91,4 +91,51 @@ test('maternal deletion disconnects the companion, preserves children, and resto
  const shared=(await f.call('workspace','GET',null,father)).value;assert.equal(shared.family.partner,null);assert.equal(shared.data.children.length,0);
  const restored=await f.call('admin/restore','POST',{trashId,baseRevision:removed.value.revision},staff);assert.equal(restored.status,200);assert.equal(restored.value.data.mothers.length,1);assert.equal(restored.value.data.children.length,1);
  assert.equal((await f.call('workspace','GET',null,mother)).value.data.mothers.length,0);assert.equal((await f.call('workspace','GET',null,father)).value.family.partner,null);
+}finally{f.db.close();}});
+
+test('a mother can invite 3 read-only companions, disconnect one specifically and reuse only the freed slot',async()=>{const f=await fixture();try{
+ const mother=await f.register('three.mother'),other=await f.register('other.mother'),companions=[];
+ await save(f,mother,[newOp('children',{id:'C001',name:'Fictional Child',dob:today(),gender:'Female',motherId:mother.account.maternalId,motherName:'Fictional mother',status:'Active'})]);
+ for(let n=1;n<=4;n++)companions.push(await f.register('companion.'+n,'father'));
+ for(const companion of companions.slice(0,3)){const invite=await f.call('family/code','POST',{},mother);assert.equal(invite.status,200);assert.equal((await f.call('family/pair','POST',{code:invite.value.code},companion)).status,200);const shared=(await f.call('workspace','GET',null,companion)).value;assert.equal(shared.data.mothers.length,1);assert.equal(shared.data.children.length,1);assert.deepEqual(shared.family.companions,[]);assert.equal((await save(f,companion,[newOp('visits',{patient:mother.account.maternalId})])).status,403);}
+ let state=(await f.call('family','GET',null,mother)).value.family;assert.equal(state.companions.length,3);assert.equal(state.companionLimit,3);
+ assert.equal((await f.call('family/code','POST',{},mother)).status,409);
+ assert.equal((await f.call('family/disconnect','POST',{},mother)).status,409,'An older client cannot disconnect everyone after showing one person');
+ assert.equal((await f.call('family/disconnect','POST',{companionId:companions[0].account.id},other)).status,200);assert.equal((await f.call('family','GET',null,mother)).value.family.companions.length,3);
+ assert.equal((await f.call('family/disconnect','POST',{companionId:companions[0].account.id},mother)).status,200);
+ assert.equal((await f.call('workspace','GET',null,companions[0])).value.data.mothers.length,0);
+ assert.equal((await f.call('workspace','GET',null,companions[1])).value.data.mothers.length,1);
+ assert.equal((await f.call('workspace','GET',null,companions[2])).value.data.children.length,1);
+ const replacement=(await f.call('family/code','POST',{},mother)).value.code;assert.equal((await f.call('family/pair','POST',{code:replacement},companions[3])).status,200);
+ state=(await f.call('family','GET',null,mother)).value.family;assert.equal(state.companions.length,3);assert.ok(!state.companions.some(c=>c.id===companions[0].account.id));
+}finally{f.db.close();}});
+
+test('the final companion slot is atomic and a valid invitation cannot bypass a full maternal account',async()=>{const f=await fixture();try{
+ const mother=await f.register('limit.mother'),companions=[];for(let n=1;n<=4;n++)companions.push(await f.register('limit.father'+n,'father'));
+ for(const c of companions.slice(0,2)){const code=(await f.call('family/code','POST',{},mother)).value.code;assert.equal((await f.call('family/pair','POST',{code},c)).status,200);}
+ const code=(await f.call('family/code','POST',{},mother)).value.code,results=await Promise.all(companions.slice(2).map(c=>f.call('family/pair','POST',{code},c)));
+ assert.equal(results.filter(r=>r.status===200).length,1);assert.equal((await f.db.prepare('SELECT count(*) AS n FROM companion_links WHERE mother_id=?').bind(mother.account.id).first()).n,3);
+ const rejected=companions[results[0].status===200?3:2],raw='1234567890ABCDEF12345678',cryptoModule=await import('node:crypto');
+ await f.db.prepare('INSERT INTO pairing_codes(mother_id,code_hash,expires_at) VALUES(?,?,?)').bind(mother.account.id,cryptoModule.createHash('sha256').update(raw).digest('hex'),Date.now()+900000).run();
+ const full=await f.call('family/pair','POST',{code:raw},rejected);assert.equal(full.status,409);assert.equal((await f.db.prepare('SELECT count(*) AS n FROM companion_links').first()).n,3);
+ assert.equal((await f.db.prepare("SELECT count(*) AS n FROM audit_events WHERE action='family-pair'").first()).n,3,'Only accepted invitations create a pairing audit');
+}finally{f.db.close();}});
+
+test('the legacy unique-mother schema migrates atomically and idempotently without losing existing pairings or care data',async()=>{const f=await fixture({legacy:true});try{
+ for(const [id,kind]of [['legacy-mother','mother'],['legacy-father','father']]){await f.db.prepare("INSERT INTO accounts(id,username,display_name,password_hash,role,created_at) VALUES(?,?,?,?,'patient',0)").bind(id,id,'Fictional '+kind,encoded).run();await f.db.prepare('INSERT INTO family_accounts(account_id,kind,maternal_id) VALUES(?,?,?)').bind(id,kind,kind==='mother'?'M001':null).run();}
+ await f.db.prepare("INSERT INTO companion_links(father_id,mother_id,created_at) VALUES('legacy-father','legacy-mother',1234)").run();
+ const originalBody=(await f.db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body;
+ await Promise.all([migrateCompanions(f.db),migrateCompanions(f.db)]);await migrateCompanions(f.db);
+ assert.deepEqual({...await f.db.prepare('SELECT * FROM companion_links').first()},{father_id:'legacy-father',mother_id:'legacy-mother',created_at:1234});
+ assert.equal((await f.db.prepare("SELECT body FROM workspace WHERE id='clinic'").first()).body,originalBody);assert.equal((await f.db.prepare('SELECT count(*) AS n FROM accounts').first()).n,3);
+ const mother=await f.login('legacy-mother');for(const username of ['legacy.second','legacy.third']){const father=await f.register(username,'father'),code=(await f.call('family/code','POST',{},mother)).value.code;assert.equal((await f.call('family/pair','POST',{code},father)).status,200);}
+ assert.equal((await f.call('family','GET',null,mother)).value.family.companions.length,3);
+}finally{f.db.close();}});
+
+test('a failed legacy schema migration rolls back cleanly and can be retried',async()=>{const f=await fixture({legacy:true});try{
+ const broken={prepare:sql=>f.db.prepare(sql),batch:statements=>f.db.batch([...statements.slice(0,2),f.db.prepare('INSERT INTO missing_migration_table VALUES(1)'),...statements.slice(2)])};
+ await assert.rejects(migrateCompanions(broken));
+ assert.match((await f.db.prepare("SELECT sql FROM sqlite_master WHERE name='companion_links'").first()).sql,/mother_id TEXT NOT NULL UNIQUE/);
+ assert.equal(await f.db.prepare("SELECT name FROM sqlite_master WHERE name='companion_links_migration'").first(),null);
+ await migrateCompanions(f.db);assert.doesNotMatch((await f.db.prepare("SELECT sql FROM sqlite_master WHERE name='companion_links'").first()).sql,/mother_id TEXT NOT NULL UNIQUE/);
 }finally{f.db.close();}});

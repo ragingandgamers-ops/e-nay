@@ -85,6 +85,7 @@ jobs:
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           node -e "(async()=>{for(let n=0;n<100;n++){try{if((await fetch('http://127.0.0.1:8765/api/status')).ok)return;}catch{}await new Promise(r=>setTimeout(r,100));}process.exit(1);})();"
           node web/tests/family-accounts-browser.test.mjs
+          node web/tests/companions-browser.test.mjs
           node web/tests/form-requirements-browser.test.mjs
           node web/tests/growth-admin-browser.test.mjs
       - name: Keep family UI evidence

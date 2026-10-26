@@ -2,7 +2,7 @@ import {scrypt,randomBytes,createHash,timingSafeEqual} from 'node:crypto';
 import {Buffer} from 'node:buffer';
 import {validateData,emptyData,normalize} from '../dist/core.mjs';
 import {applyRecordOperations,nextProfileId} from '../dist/record-operations.mjs';
-import {SCHEMA} from './schema.mjs';
+import {SCHEMA,MAX_COMPANIONS,migrateCompanions} from './schema.mjs';
 import {handleAdmin} from './admin.mjs';
 
 const readyDatabases=new WeakMap();
@@ -15,7 +15,7 @@ const isDevelopment=(request,env)=>env.DEVELOPMENT==='true'&&['localhost','127.0
 const cookieName=(request,env)=>isDevelopment(request,env)?'enay_dev_device':'__Host-enay_device';
 const cookieValue=(request,key)=>request.headers.get('Cookie')?.split(';').map(v=>v.trim()).find(v=>v.startsWith(key+'='))?.slice(key.length+1);
 function reply(value,status=200,headers={}){return new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});}
-async function setup(db){if(!readyDatabases.has(db))readyDatabases.set(db,db.batch(SCHEMA.split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql))).catch(error=>{readyDatabases.delete(db);throw error;}));await readyDatabases.get(db);}
+async function setup(db){if(!readyDatabases.has(db))readyDatabases.set(db,db.batch(SCHEMA.split(';').map(sql=>sql.trim()).filter(Boolean).map(sql=>db.prepare(sql))).then(()=>migrateCompanions(db)).catch(error=>{readyDatabases.delete(db);throw error;}));await readyDatabases.get(db);}
 async function bodyOf(request){
  if(!request.headers.get('Content-Type')?.toLowerCase().startsWith('application/json'))throw new ApiError(415,'Send a JSON request.');
  if(Number(request.headers.get('Content-Length'))>MAX_BODY)throw new ApiError(413,'This workspace is too large to synchronize in one request. Export a backup before reducing it.');
@@ -154,10 +154,10 @@ async function familyAllowed(db,account){
 }
 async function familyState(db,account){
  if(account.role==='staff')return null;
- const partner=account.kind==='father'
-  ?await db.prepare('SELECT a.id,a.display_name FROM companion_links c JOIN accounts a ON a.id=c.mother_id WHERE c.father_id=? AND a.active=1').bind(account.id).first()
-  :await db.prepare('SELECT a.id,a.display_name FROM companion_links c JOIN accounts a ON a.id=c.father_id WHERE c.mother_id=? AND a.active=1').bind(account.id).first();
- return {kind:account.kind??null,maternalId:account.maternal_id??null,partner:partner?{id:partner.id,name:partner.display_name}:null};
+ const partner=account.kind==='father'?await db.prepare('SELECT a.id,a.display_name FROM companion_links c JOIN accounts a ON a.id=c.mother_id WHERE c.father_id=? AND a.active=1').bind(account.id).first():null;
+ const companions=account.kind==='mother'?(await db.prepare('SELECT a.id,a.display_name,a.username FROM companion_links c JOIN accounts a ON a.id=c.father_id WHERE c.mother_id=? AND a.active=1 ORDER BY c.created_at,c.father_id').bind(account.id).all()).results.map(a=>({id:a.id,name:a.display_name,username:a.username})):[];
+ // Keep the singular field for already-open older clients. Mothers use the list.
+ return {kind:account.kind??null,maternalId:account.maternal_id??null,partner:partner?{id:partner.id,name:partner.display_name}:companions[0]??null,companions,companionLimit:MAX_COMPANIONS};
 }
 // Existing accounts explicitly choose their personal record. Never infer identity
 // from a similar name, merge records, or transfer another account's ownership.
@@ -208,7 +208,7 @@ async function familyApi(request,env,account,path,method){
  }
  if(path==='/api/family/code'&&method==='POST'){
   if(account.kind!=='mother'||!account.maternal_id)throw new ApiError(403,'Set up your personal maternal record before inviting a companion.');
-  if((await familyState(db,account)).partner)throw new ApiError(409,'Disconnect your current companion before creating another invitation.');
+  if((await db.prepare('SELECT count(*) AS n FROM companion_links WHERE mother_id=?').bind(account.id).first()).n>=MAX_COMPANIONS)throw new ApiError(409,'You have reached the limit of 3 companions. Disconnect one before inviting someone else.');
   await limit(db,'pair-code:'+account.id,8);
   const code=randomBytes(12).toString('hex').toUpperCase(),expiresAt=Date.now()+15*60*1000;
   await db.prepare('INSERT INTO pairing_codes(mother_id,code_hash,expires_at) VALUES(?,?,?) ON CONFLICT(mother_id) DO UPDATE SET code_hash=excluded.code_hash,expires_at=excluded.expires_at').bind(account.id,digest(code),expiresAt).run();
@@ -222,19 +222,30 @@ async function familyApi(request,env,account,path,method){
   const now=Date.now(),hash=digest(code),eventId=crypto.randomUUID();
   try{
    const result=await db.batch([
-    db.prepare("INSERT INTO companion_links(father_id,mother_id,created_at) SELECT ?,p.mother_id,? FROM pairing_codes p JOIN accounts a ON a.id=p.mother_id JOIN family_accounts f ON f.account_id=a.id WHERE p.code_hash=? AND p.expires_at>? AND a.active=1 AND f.kind='mother' AND f.maternal_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM companion_links WHERE father_id=? OR mother_id=p.mother_id)").bind(account.id,now,hash,now,account.id),
-    db.prepare('DELETE FROM pairing_codes WHERE code_hash=? AND EXISTS(SELECT 1 FROM companion_links WHERE father_id=? AND mother_id=pairing_codes.mother_id)').bind(hash,account.id),
-    db.prepare("INSERT INTO audit_events(id,account_id,action,created_at) SELECT ?,?,'family-pair',? WHERE EXISTS(SELECT 1 FROM companion_links WHERE father_id=?)").bind(eventId,account.id,now,account.id)
+    db.prepare("INSERT INTO companion_links(father_id,mother_id,created_at) SELECT ?,p.mother_id,? FROM pairing_codes p JOIN accounts a ON a.id=p.mother_id JOIN family_accounts f ON f.account_id=a.id WHERE p.code_hash=? AND p.expires_at>? AND a.active=1 AND f.kind='mother' AND f.maternal_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM companion_links WHERE father_id=?) AND (SELECT count(*) FROM companion_links WHERE mother_id=p.mother_id)<?").bind(account.id,now,hash,now,account.id,MAX_COMPANIONS),
+    db.prepare('DELETE FROM pairing_codes WHERE code_hash=? AND changes()=1 AND EXISTS(SELECT 1 FROM companion_links WHERE father_id=? AND mother_id=pairing_codes.mother_id)').bind(hash,account.id),
+    db.prepare("INSERT INTO audit_events(id,account_id,action,created_at) SELECT ?,?,'family-pair',? WHERE changes()=1 AND EXISTS(SELECT 1 FROM companion_links WHERE father_id=?)").bind(eventId,account.id,now,account.id)
    ]);
-   if(result[0].meta.changes!==1)throw new ApiError(400,'This code is expired, already used or unavailable. Ask the mother for a new code.');
+   if(result[0].meta.changes!==1){
+    const full=await db.prepare('SELECT mother_id FROM pairing_codes p WHERE code_hash=? AND expires_at>? AND (SELECT count(*) FROM companion_links WHERE mother_id=p.mother_id)>=?').bind(hash,now,MAX_COMPANIONS).first();
+    if(full)throw new ApiError(409,'You have reached the limit of 3 companions. Disconnect one before inviting someone else.');
+    throw new ApiError(400,'This code is expired, already used or unavailable. Ask the mother for a new code.');
+   }
   }catch(error){if(/UNIQUE/i.test(error.message))throw new ApiError(409,'This account is already paired.');throw error;}
   return reply({paired:true});
  }
  if(path==='/api/family/disconnect'&&method==='POST'){
   if(account.kind!=='mother')throw new ApiError(403,'Only the mother can disconnect her companion.');
+  const input=await bodyOf(request);let companionId=input.companionId;
+  if(companionId===undefined){
+   const links=(await db.prepare('SELECT father_id FROM companion_links WHERE mother_id=?').bind(account.id).all()).results;
+   if(links.length>1)throw new ApiError(409,'Choose the companion you want to disconnect.');
+   companionId=links[0]?.father_id??'';
+  }
+  if(typeof companionId!=='string'||companionId.length>100)throw new ApiError(400,'Choose the companion you want to disconnect.');
   await db.batch([
-   db.prepare('DELETE FROM companion_links WHERE mother_id=?').bind(account.id),
-   db.prepare('DELETE FROM pairing_codes WHERE mother_id=?').bind(account.id),
+   db.prepare('DELETE FROM companion_links WHERE mother_id=? AND father_id=?').bind(account.id,companionId),
+   db.prepare('DELETE FROM pairing_codes WHERE mother_id=? AND changes()=1').bind(account.id),
    db.prepare("INSERT INTO audit_events(id,account_id,action,created_at) VALUES(?,?,'family-disconnect',?)").bind(crypto.randomUUID(),account.id,Date.now())
   ]);
   return reply({disconnected:true});
@@ -247,7 +258,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'growth-trash-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'companions-v2'});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
   if(raw.role&&raw.role!=='patient')throw new ApiError(403,'Staff access is assigned by the clinic; it cannot be selected during registration.');
