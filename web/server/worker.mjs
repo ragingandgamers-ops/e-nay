@@ -1,6 +1,6 @@
 import {scrypt,randomBytes,createHash,timingSafeEqual} from 'node:crypto';
 import {Buffer} from 'node:buffer';
-import {validateData,emptyData,normalize} from '../dist/core.mjs';
+import {validateData,emptyData,normalize,today} from '../dist/core.mjs';
 import {applyRecordOperations,nextProfileId} from '../dist/record-operations.mjs';
 import {SCHEMA,MAX_COMPANIONS,migrateCompanions} from './schema.mjs';
 import {handleAdmin} from './admin.mjs';
@@ -61,7 +61,11 @@ function staffOnly(account){if(account.role!=='staff')throw new ApiError(403,'Th
 async function workspaceFor(db,account){
  const row=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
  const data=validateData(JSON.parse(row.body));
- const catalog=[...new Set(data.inventory.map(batch=>batch.vaccine))].sort();
+ // Patients choose vaccine names, never private batch details or quantities.
+ // Several batches may supply one vaccine; one usable batch makes it available.
+ const available=new Map(),now=today();
+ for(const batch of data.inventory)if(batch.stock>0&&batch.expires>=now){const key=batch.vaccine.normalize('NFC').trim().replace(/\s+/gu,' ').toLowerCase();if(!available.has(key))available.set(key,batch.vaccine);}
+ const catalog=[...available.values()].sort((a,b)=>a.localeCompare(b));
  if(account.role==='staff')return {revision:row.revision,data,catalog,savedAt:row.updated_at,reservedProfileIds:(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id)};
  const allowed=new Set(await familyAllowed(db,account)),filtered=emptyData();
  filtered.mothers=data.mothers.filter(record=>allowed.has(record.id));
@@ -259,7 +263,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'password-recovery-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'vaccine-dropdown-v1'});
  if(path.startsWith('/api/password/'))return handleRecovery(request,env,null,path,method,{bodyOf,reply,ApiError,limit,credentials,passwordHash,passwordMatches,digest,randomBytes});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);

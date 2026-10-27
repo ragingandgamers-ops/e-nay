@@ -102,6 +102,16 @@ test('only staff publish clinic guides; every patient sees published articles wi
   const archived=await records(f,staff,[editOp('guides',published.value.data.guides[0],{status:'Archived'})]);assert.equal(archived.status,200);assert.equal((await f.call('/api/workspace',{session:patient})).value.data.guides.length,0);assert.equal(archived.value.data.guides.length,1);
  }finally{f.db.close();}
 });
+test('patient vaccine catalog lists usable vaccines once, without exposing batches or stock',async()=>{
+ const f=await fixture();try{
+  const staff=await f.login('worker.one'),data=clinicData(),batch=data.inventory[0];
+  data.inventory=[batch,{...batch,id:'case-duplicate',batch:'CASE',vaccine:'test VACCINE'},{...batch,id:'empty',batch:'EMPTY',vaccine:'Empty vaccine',stock:0},{...batch,id:'expired',batch:'EXPIRED',vaccine:'Expired vaccine',expires:'2020-01-01'},{...batch,id:'today',batch:'TODAY',vaccine:'Today vaccine',expires:today()},{...batch,id:'mixed-empty',batch:'MIXED-EMPTY',vaccine:'Mixed vaccine',stock:0},{...batch,id:'mixed-ready',batch:'MIXED-READY',vaccine:'Mixed vaccine',stock:1}];
+  assert.equal((await f.call('/api/workspace',{method:'PUT',session:staff,body:{baseRevision:'initial',operationId:crypto.randomUUID(),data}})).status,200);
+  const patient=await f.login('patient.one'),result=await f.call('/api/workspace',{session:patient});
+  assert.deepEqual(result.value.catalog,['Mixed vaccine','Test vaccine','Today vaccine']);assert.deepEqual(result.value.data.inventory,[]);
+  const inventory=(await f.call('/api/inventory',{session:staff})).value.inventory;assert.equal(inventory.length,7);assert.equal(inventory.find(row=>row.id==='empty').stock,0);
+ }finally{f.db.close();}
+});
 test('old snapshot clients preserve clinic articles and stale guide edits cannot overwrite newer staff changes',async()=>{
  const f=await fixture();try{
   const staff=await f.login('worker.one'),record={id:crypto.randomUUID(),title:'Clinic update',category:'Clinic information',content:'Original instructions',status:'Published'};

@@ -8,7 +8,7 @@ const admin=(await readFile(new URL('./admin.mjs',import.meta.url),'utf8')).repl
 const recovery=await readFile(new URL('./recovery.mjs',import.meta.url),'utf8');
 const schema=await readFile(new URL('./schema.mjs',import.meta.url),'utf8');
 let worker=await readFile(new URL('./worker.mjs',import.meta.url),'utf8');
-for(const statement of ["import {validateData,emptyData,normalize} from '../dist/core.mjs';","import {applyRecordOperations,nextProfileId} from '../dist/record-operations.mjs';","import {SCHEMA,MAX_COMPANIONS,migrateCompanions} from './schema.mjs';","import {handleAdmin} from './admin.mjs';","import {handleRecovery} from './recovery.mjs';"]){
+for(const statement of ["import {validateData,emptyData,normalize,today} from '../dist/core.mjs';","import {applyRecordOperations,nextProfileId} from '../dist/record-operations.mjs';","import {SCHEMA,MAX_COMPANIONS,migrateCompanions} from './schema.mjs';","import {handleAdmin} from './admin.mjs';","import {handleRecovery} from './recovery.mjs';"]){
  if(!worker.includes(statement))throw new Error('Worker imports changed; update the explicit build inputs.');
  worker=worker.replace(statement,'');
 }
