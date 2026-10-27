@@ -1,0 +1,8 @@
+/* Asklepios-inspired E-Nay primitives. Hygeia Red values supplied by the user. */
+@font-face{font-family:'Plus Jakarta Sans';src:url('./assets/plus-jakarta-sans-variable.ttf') format('truetype');font-weight:200 800;font-display:swap}
+:root{
+ --red-10:#fff1f3;--red-20:#ffd7dd;--red-30:#ffb3bd;--red-40:#ff8391;--red-50:#fa4d5e;--red-60:#da1b2e;--red-70:#a21922;--red-80:#750e13;--red-90:#520407;--red-100:#2d0708;
+ --primary:var(--red-60);--primary-hover:var(--red-70);--primary-soft:var(--red-10);--primary-border:var(--red-20);--text:#171b26;--text-secondary:#5d6472;--text-subtle:#747b89;--canvas:#f7f8fa;--surface:#fff;--surface-subtle:#f1f3f6;--border:#e4e7ec;--success-bg:#e9f6ef;--success-text:#216346;--warning-bg:#fff4df;--warning-text:#805400;--danger-bg:var(--red-10);--danger-text:var(--red-70);--info-bg:#edf3ff;--info-text:#34558c;
+ --radius-sm:10px;--radius-md:16px;--radius-lg:24px;--radius-xl:32px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;--space-10:40px;--shadow-card:0 8px 28px #16203506;--shadow-float:0 16px 48px #35121914;--font:'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+ --paper:var(--canvas);--ink:var(--text);--muted:var(--text-secondary);--line:var(--border);--sage:var(--primary-soft);--coral:var(--primary);--white:var(--surface);--serif:var(--font);--sans:var(--font);
+}
