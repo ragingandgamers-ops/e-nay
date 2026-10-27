@@ -58,7 +58,7 @@ try{
  await mobile.getByRole('button',{name:'How to open & install',exact:true}).click();
  check(await mobile.locator('#info-body').getByText(/Open this site in Safari/).isVisible(),'Installation guidance explains Safari and Add to Home Screen');
  await mobile.getByRole('button',{name:'Close dialog',exact:true}).click();
- await mobile.locator('[data-add="mothers"]').first().click();
+ await mobile.locator('[data-add="mothers"]').first().click();await mobile.locator('#form-dialog').waitFor({state:'visible'});
  for(const [field,value] of Object.entries({id:'M001',name:'Mobile Test Mother',age:'25',edd:today()}))await mobile.locator('#field-'+field).fill(value);
  await mobile.locator('#record-form button[type=submit]').click();
  await mobile.locator('#form-dialog').waitFor({state:'hidden'});

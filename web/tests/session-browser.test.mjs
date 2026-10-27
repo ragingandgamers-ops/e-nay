@@ -32,7 +32,7 @@ try{
  await page.reload();await ready(page);check(await page.locator('[data-page="inventory"]').isVisible(),'A patient session in another tab does not replace the staff session');await second.close();
  await waitOffline(page);
  await context.setOffline(true);await page.reload();await ready(page);check(logins===1,'Offline refresh restores the authorized encrypted copy without a password prompt');
- await page.locator('[data-add="mothers"]').first().click();for(const [key,value]of Object.entries({id:'M001',name:'Fictional Refresh Mother',age:'25',edd:today()}))await page.locator('#field-'+key).fill(value);await page.locator('#record-form [type="submit"]').click();await page.locator('#form-dialog').waitFor({state:'hidden'});
+ await page.locator('[data-add="mothers"]').first().click();await page.locator('#form-dialog').waitFor({state:'visible'});for(const [key,value]of Object.entries({id:'M001',name:'Fictional Refresh Mother',age:'25',edd:today()}))await page.locator('#field-'+key).fill(value);await page.locator('#record-form [type="submit"]').click();await page.locator('#form-dialog').waitFor({state:'hidden'});
  const pendingGeneration=await snapshot(page);await page.reload();await ready(page);check((await privateCopy(page)).mothers.some(r=>r.id==='M001'),'Pending offline record survives refresh');check(await snapshot(page)===pendingGeneration,'Offline restoration does not rewrite the pending copy');
  await page.screenshot({path:'test-output/web/session-offline-refresh.png',fullPage:true});
  await page.evaluate(key=>{const t=JSON.parse(sessionStorage.getItem(key));t.account.role='patient';sessionStorage.setItem(key,JSON.stringify(t));},ticketKey);await page.reload();await locked(page);

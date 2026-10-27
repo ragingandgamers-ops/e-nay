@@ -18,7 +18,7 @@ try{
  },{proof,stock});}
  await setInventory(3);
  const family=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'}),patient=await family.newPage(),errors=[];patient.on('pageerror',e=>errors.push(e.message));patient.on('dialog',d=>d.accept());await patient.goto(base+'#workspace/children');await signIn(patient,'test.patient');await waitOffline(patient);
- await patient.locator('[data-add="children"]').first().click();await patient.locator('#field-name').fill('Fictional Picker Child');await patient.locator('#field-dob').fill(today());await patient.locator('#field-motherName').fill('Fictional Guardian');await save(patient);
+ await patient.locator('[data-add="children"]').first().click();await patient.locator('#form-dialog').waitFor({state:'visible'});await patient.locator('#field-name').fill('Fictional Picker Child');await patient.locator('#field-dob').fill(today());await patient.locator('#field-motherName').fill('Fictional Guardian');await save(patient);
  await patient.evaluate(()=>location.hash='workspace/children/C001/vaccines');await patient.locator('[data-add="vaccines"]').click();
  check(await patient.locator('#field-vaccine').evaluate(el=>el.tagName)==='SELECT','Patients get a real native dropdown, not typing suggestions');
  check(await patient.locator('#field-vaccine').inputValue()==='','No vaccine is silently selected for a new request');

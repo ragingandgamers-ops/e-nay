@@ -27,7 +27,7 @@ try{
  check((await page.locator('label[for="account-name"]').textContent()).startsWith('Inyong pangalan'),'Account screen uses Filipino labels');
  await page.locator('#auth-submit').click();await page.locator('#workspace-view').waitFor({state:'visible'});
  check((await page.locator('#page-content h1').textContent()).includes('Buod ng inyong klinika.'),'Clinic screen follows the chosen language');
- await route(page,'mothers');await page.locator('[data-add="mothers"]').first().click();
+ await route(page,'mothers');await page.locator('[data-add="mothers"]').first().click();await page.locator('#form-dialog').waitFor({state:'visible'});
  for(const [key,value]of Object.entries({id:'M001',name:'Ana3',age:'25',edd:today()}))await page.locator('#field-'+key).fill(value);
  await page.locator('#record-form [type="submit"]').click();await page.locator('#field-name[aria-invalid="true"]').waitFor();
  check((await page.locator('#form-error').textContent()).startsWith('Gumamit ng letra'),'Validation failures are explained in Filipino');
@@ -50,7 +50,7 @@ try{
  const family=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'}),patient=await family.newPage();patient.on('pageerror',error=>errors.push(error.message));await patient.goto(base+'#workspace');await language(patient,'fil');await signIn(patient,'test.patient');
  check((await patient.locator('#page-content h1').textContent()).includes('Malapit sa inyo ang pag-aalaga.'),'Patient overview is localized independently of staff');
  check(!await patient.locator('[data-page="inventory"]').isVisible()&&await patient.locator('[data-add="mothers"]').count()===0,'Changing language preserves patient editing and staff-only inventory boundaries');
- await route(patient,'mothers');await patient.locator('[data-edit="mothers"]').click();check((await patient.locator('#form-fields').textContent()).toLowerCase().includes('pangalan')&&await patient.locator('#field-name').inputValue()==='Active','Patient edit fields translate while keeping the name original');await patient.locator('#close-form').click();
+ await route(patient,'mothers');await patient.locator('[data-edit="mothers"]').click();await patient.locator('#form-dialog').waitFor({state:'visible'});check((await patient.locator('#form-fields').textContent()).toLowerCase().includes('pangalan')&&await patient.locator('#field-name').inputValue()==='Active','Patient edit fields translate while keeping the name original');await patient.locator('#close-form').click();
  await patient.waitForFunction(()=>document.querySelector('#offline-status').textContent==='Handa nang gamitin offline · Naka-download na ang app',null,{timeout:20000});await family.setOffline(true);await patient.reload();await patient.locator('#workspace-view').waitFor({state:'visible'});
  check(await patient.locator('html').getAttribute('lang')==='fil'&&await patient.locator('#record-results strong').textContent()==='Active','Offline refresh restores the Filipino interface and encrypted account copy');
  await language(patient,'en');check((await patient.locator('#page-content h1').textContent()).includes('Mothers’ records'),'Language switch works entirely offline');await language(patient,'fil');
