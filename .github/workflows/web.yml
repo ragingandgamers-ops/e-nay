@@ -18,7 +18,7 @@ jobs:
           node web/server/build-worker.mjs
           git diff --exit-code -- web/dist/_worker.js
       - name: Core validation and recovery tests
-        run: node --test web/tests/core.test.mjs web/tests/accounts.test.mjs web/tests/dashboard.test.mjs web/tests/lists.test.mjs web/tests/family-accounts.test.mjs web/tests/recovery.test.mjs web/tests/archive-delete.test.mjs
+        run: node --test web/tests/core.test.mjs web/tests/accounts.test.mjs web/tests/dashboard.test.mjs web/tests/lists.test.mjs web/tests/family-accounts.test.mjs web/tests/recovery.test.mjs web/tests/archive-delete.test.mjs web/tests/auth-availability.test.mjs
       - name: Browser test dependencies
         working-directory: web
         run: |

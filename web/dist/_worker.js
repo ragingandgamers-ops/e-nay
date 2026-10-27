@@ -710,7 +710,9 @@ import {Buffer} from 'node:buffer';
 
 const readyDatabases=new WeakMap();
 const MAX_BODY=1500000;
-let hashing=0;
+// Leases expire if a disconnected request never reaches its finally block.
+// Each request waits on its own timer; no I/O promise is shared across requests.
+const passwordLeases=new Map();
 class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}
 const digest=value=>createHash('sha256').update(value).digest('hex');
 const publicAccount=account=>({id:account.id,username:account.username,displayName:account.display_name,role:account.role,kind:account.kind??null,maternalId:account.maternal_id??null});
@@ -735,10 +737,14 @@ function credentials(raw){
  return {username,password:raw.password};
 }
 async function derivePassword(password,salt){
- if(hashing>=2)throw new ApiError(429,'Sign-in is busy. Please try again shortly.');
- hashing++;
+ const lease=Symbol(),deadline=Date.now()+8000;
+ for(;;){const now=Date.now();for(const [key,expires]of passwordLeases)if(expires<=now)passwordLeases.delete(key);
+  if(passwordLeases.size<2){passwordLeases.set(lease,now+5000);break;}
+  if(now>=deadline)throw new ApiError(429,'Sign-in is busy. Please try again shortly.');
+  await new Promise(resolve=>setTimeout(resolve,50));
+ }
  try{return await new Promise((resolve,reject)=>scrypt(password,salt,64,{N:32768,r:8,p:3,maxmem:64*1024*1024},(error,key)=>error?reject(error):resolve(key)));}
- finally{hashing--;}
+ finally{passwordLeases.delete(lease);}
 }
 async function passwordHash(password){const salt=randomBytes(16).toString('hex');return `scrypt$32768$8$3$${salt}$${(await derivePassword(password,salt)).toString('hex')}`;}
 async function passwordMatches(password,encoded){
@@ -967,7 +973,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'archive-delete-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'auth-availability-v1'});
  if(path.startsWith('/api/password/'))return handleRecovery(request,env,null,path,method,{bodyOf,reply,ApiError,limit,credentials,passwordHash,passwordMatches,digest,randomBytes});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
