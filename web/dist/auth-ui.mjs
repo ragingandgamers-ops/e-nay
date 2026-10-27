@@ -34,5 +34,5 @@ export function setupAccounts(onChange){
 }
 export async function patientAccess(store){
  const {accounts}=await api('accounts',{proof:store.proof});
- return createPatientDirectory(accounts,[...store.data.mothers,...store.data.children],(accountId,patientIds)=>api('links',{method:'PUT',proof:store.proof,body:{accountId,patientIds}}));
+ const selectionEpoch=store.epoch;return createPatientDirectory(accounts,[...store.data.mothers,...store.data.children],(accountId,patientIds)=>api('links',{method:'PUT',proof:store.proof,body:{epoch:selectionEpoch,accountId,patientIds}}));
 }

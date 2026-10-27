@@ -79,3 +79,15 @@ body.workspace-active>.language-bar{display:none}
 .forgot-password{display:block;margin:12px 0 20px;border:0;background:none;color:var(--primary);padding:0;text-align:left}.recovery-back{display:block;border:0;background:none;padding:0;margin-top:24px;color:var(--primary)}#auth-recovery form,#issue-recovery-form{display:grid;gap:12px}#auth-recovery .auth-tabs{flex-wrap:wrap;gap:8px}#auth-recovery .button,#issue-recovery-form .button{white-space:normal}.recovery-copy-options{border-top:1px solid var(--border);margin-top:24px;padding-top:12px;display:grid;gap:16px}#issued-code-value{font-family:monospace;font-size:16px;letter-spacing:.03em}#issued-recovery-code{display:grid;gap:12px}#recovery-only-filter{width:auto;display:inline-block;margin-right:8px}.admin-row>div .badge{margin-top:6px}#auth-recovery .check-field,#issue-recovery-form .check-field{display:flex;align-items:flex-start;gap:10px}#auth-recovery input[type=checkbox],#issue-recovery-form input[type=checkbox]{width:20px;height:20px;flex-shrink:0}#auth-recovery input,#issue-recovery-form input{min-width:0;width:100%;box-sizing:border-box}
 
 #auth-view.recovering .auth-story{display:none}#auth-view.recovering .auth-layout{grid-template-columns:minmax(0,1fr);max-width:620px;min-height:0}#auth-recovery form{gap:8px}#auth-recovery form>label,#issue-recovery-form>label{margin:16px 0 0}#auth-recovery form>label:first-child{margin-top:0}#auth-recovery input{margin:0}#auth-recovery .hint{margin:0 0 8px}#auth-recovery form>.button{margin-top:16px}
+/* Compact batch controls stay usable on phones and tablets. */
+.bulk-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 0;margin-bottom:12px}
+.bulk-toolbar label,.record-select{display:inline-flex;align-items:center;gap:8px}
+.bulk-toolbar input[type=checkbox],.record-select input[type=checkbox]{width:20px;height:20px;min-height:20px;accent-color:var(--primary);flex:none}
+.record-select{padding:8px;margin-right:6px}
+.admin-row>.record-select+div{flex:1;min-width:0}
+.archive-record{border:1px solid var(--border);border-radius:14px;padding:14px;margin-block:12px;overflow-wrap:anywhere}
+.archive-record summary{cursor:pointer;font-weight:650;padding-block:6px}
+.archive-record dl{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,2fr);gap:10px 16px;margin-top:16px}
+.archive-record dt{color:var(--text-secondary)}
+.archive-record dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:600px){.bulk-toolbar>span{margin-left:auto}.bulk-toolbar>.row-button{flex:1}.admin-row{flex-wrap:wrap}.admin-row>.row-actions{width:100%;justify-content:flex-end}}

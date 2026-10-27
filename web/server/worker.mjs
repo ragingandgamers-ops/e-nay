@@ -5,6 +5,7 @@ import {applyRecordOperations,nextProfileId} from '../dist/record-operations.mjs
 import {SCHEMA,MAX_COMPANIONS,migrateCompanions} from './schema.mjs';
 import {handleAdmin} from './admin.mjs';
 import {handleRecovery} from './recovery.mjs';
+import {handleArchiveDeletion,readHealthArchives} from './archive-delete.mjs';
 
 const readyDatabases=new WeakMap();
 const MAX_BODY=1500000;
@@ -58,24 +59,25 @@ async function accountFor(request,env){
  return enrichAccount(env.DB,row);
 }
 function staffOnly(account){if(account.role!=='staff')throw new ApiError(403,'This operation is available to authorized clinic staff only.');}
+async function checkEpoch(db,input){const guard=await db.prepare("SELECT epoch FROM workspace_epoch WHERE id='clinic'").first();if((input.epoch??'initial')!==guard.epoch)throw new ApiError(409,'Records were archived and removed from active records. Keep a backup of pending edits, then load the current clinic copy before making changes.');}
 async function workspaceFor(db,account){
  const row=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
- const data=validateData(JSON.parse(row.body));
+ const data=validateData(JSON.parse(row.body)),epoch=(await db.prepare("SELECT epoch FROM workspace_epoch WHERE id='clinic'").first()).epoch;
  // Patients choose vaccine names, never private batch details or quantities.
  // Several batches may supply one vaccine; one usable batch makes it available.
  const available=new Map(),now=today();
  for(const batch of data.inventory)if(batch.stock>0&&batch.expires>=now){const key=batch.vaccine.normalize('NFC').trim().replace(/\s+/gu,' ').toLowerCase();if(!available.has(key))available.set(key,batch.vaccine);}
  const catalog=[...available.values()].sort((a,b)=>a.localeCompare(b));
- if(account.role==='staff')return {revision:row.revision,data,catalog,savedAt:row.updated_at,reservedProfileIds:(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id)};
+ if(account.role==='staff')return {epoch,revision:row.revision,data,catalog,savedAt:row.updated_at,reservedProfileIds:(await db.prepare('SELECT profile_id FROM profile_reservations').all()).results.map(r=>r.profile_id)};
  const allowed=new Set(await familyAllowed(db,account)),filtered=emptyData();
  filtered.mothers=data.mothers.filter(record=>allowed.has(record.id));
  filtered.children=data.children.filter(record=>allowed.has(record.id));
  for(const type of ['visits','vaccines','growth'])filtered[type]=data[type].filter(record=>allowed.has(record.patient));
   filtered.guides=data.guides.filter(guide=>guide.status==='Published');
- return {revision:row.revision,data:filtered,catalog,savedAt:row.updated_at,family:await familyState(db,account),account:publicAccount({...account,display_name:account.kind==='mother'?(data.mothers.find(m=>m.id===account.maternal_id)?.name??account.display_name):account.display_name})};
+ return {epoch,revision:row.revision,data:filtered,catalog,savedAt:row.updated_at,family:await familyState(db,account),account:publicAccount({...account,display_name:account.kind==='mother'?(data.mothers.find(m=>m.id===account.maternal_id)?.name??account.display_name):account.display_name})};
 }
 async function saveWorkspace(db,account,input){
- staffOnly(account);
+ staffOnly(account);await checkEpoch(db,input);
  if(typeof input.baseRevision!=='string'||typeof input.operationId!=='string'||!/^[a-zA-Z0-9-]{16,80}$/.test(input.operationId))throw new ApiError(400,'The synchronization identifier is invalid.');
  const existing=await db.prepare('SELECT * FROM sync_operations WHERE id=?').bind(input.operationId).first();
  if(existing){if(existing.account_id!==account.id)throw new ApiError(409,'This synchronization identifier is already in use.');return {revision:existing.revision};}
@@ -115,7 +117,8 @@ async function saveRecords(db,account,input){
  if(account.role==='patient'&&account.kind==='father')throw new ApiError(403,'Companion access is read-only. The mother or clinic staff can update records.');
  if(typeof input.operationId!=='string'||!/^[a-zA-Z0-9-]{16,80}$/.test(input.operationId))throw new ApiError(400,'The synchronization identifier is invalid.');
  for(let attempt=0;attempt<3;attempt++){
-  const receipt=await recordReceipt(db,account,input.operationId);if(receipt)return receipt;
+  await checkEpoch(db,input);
+  const receipt=await recordReceipt(db,account,input.operationId);if(receipt){if((input.epoch??'initial')!==receipt.epoch)throw new ApiError(409,'Records were archived and removed from active records. Load the current clinic copy before retrying older edits.');return receipt;}
   const current=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
   const allowedIds=await familyAllowed(db,account);
   if(account.role==='patient'&&input.operations?.some(op=>op.type==='mothers'&&op.originalId===null)){
@@ -263,7 +266,7 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'vaccine-dropdown-v1'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'archive-delete-v1'});
  if(path.startsWith('/api/password/'))return handleRecovery(request,env,null,path,method,{bodyOf,reply,ApiError,limit,credentials,passwordHash,passwordMatches,digest,randomBytes});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
@@ -295,6 +298,8 @@ async function api(request,env){
  }
  const account=await accountFor(request,env);
  if(path==='/api/admin/password-code')return handleRecovery(request,env,account,path,method,{bodyOf,reply,ApiError,limit,credentials,passwordHash,passwordMatches,digest,randomBytes});
+ if(path.startsWith('/api/admin/archives')&&method==='GET')return readHealthArchives(request,env,account,{reply,ApiError});
+ if(['/api/admin/archive-delete','/api/admin/archive-preview'].includes(path)&&method==='POST')return handleArchiveDeletion(request,env,account,path,{bodyOf,reply,ApiError,workspaceFor});
  if(path.startsWith('/api/admin/'))return handleAdmin(request,env,account,path,method,{bodyOf,reply,ApiError,workspaceFor});
  if(path.startsWith('/api/family'))return familyApi(request,env,account,path,method);
  if(path==='/api/me'&&method==='GET')return reply({account:publicAccount(account)});
@@ -311,7 +316,7 @@ async function api(request,env){
   return reply({accounts:accounts.results.map(a=>({...publicAccount(a),patientIds:links.results.filter(link=>link.account_id===a.id).map(link=>link.patient_id)}))});
  }
  if(path==='/api/links'&&method==='PUT'){
-  staffOnly(account);const input=await bodyOf(request),target=await env.DB.prepare("SELECT id FROM accounts WHERE id=? AND role='patient' AND active=1").bind(input.accountId??'').first();
+  staffOnly(account);const input=await bodyOf(request);await checkEpoch(env.DB,input);const target=await env.DB.prepare("SELECT id FROM accounts WHERE id=? AND role='patient' AND active=1").bind(input.accountId??'').first();
   if(!target)throw new ApiError(400,'Choose an active patient account.');
   const targetIdentity=await enrichAccount(env.DB,target);if(targetIdentity.kind==='father')throw new ApiError(403,'Fathers use a mother’s pairing code. Staff cannot assign companion access.');
   const clinic=await workspaceFor(env.DB,account),validIds=new Set([...clinic.data.mothers,...clinic.data.children].map(r=>r.id));

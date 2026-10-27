@@ -60,6 +60,15 @@ CREATE TABLE IF NOT EXISTS audit_events (
  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, action TEXT NOT NULL,
  revision TEXT, created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS workspace_epoch (id TEXT PRIMARY KEY,epoch TEXT NOT NULL);
+INSERT OR IGNORE INTO workspace_epoch(id,epoch) VALUES('clinic','initial');
+CREATE TABLE IF NOT EXISTS archive_delete_operations (
+ id TEXT PRIMARY KEY,account_id TEXT NOT NULL,targets TEXT NOT NULL,revision TEXT NOT NULL,created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS health_archives (
+ id TEXT PRIMARY KEY,summary TEXT NOT NULL,search_text TEXT NOT NULL,
+ body TEXT NOT NULL,counts TEXT NOT NULL,archived_by TEXT NOT NULL,archived_at INTEGER NOT NULL
+);
 INSERT OR IGNORE INTO workspace(id,revision,body,updated_at)
 VALUES('clinic','initial','{"mothers":[],"children":[],"visits":[],"vaccines":[],"growth":[],"inventory":[]}',0);
 `;

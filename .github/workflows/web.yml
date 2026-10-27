@@ -18,7 +18,7 @@ jobs:
           node web/server/build-worker.mjs
           git diff --exit-code -- web/dist/_worker.js
       - name: Core validation and recovery tests
-        run: node --test web/tests/core.test.mjs web/tests/accounts.test.mjs web/tests/dashboard.test.mjs web/tests/lists.test.mjs web/tests/family-accounts.test.mjs web/tests/recovery.test.mjs
+        run: node --test web/tests/core.test.mjs web/tests/accounts.test.mjs web/tests/dashboard.test.mjs web/tests/lists.test.mjs web/tests/family-accounts.test.mjs web/tests/recovery.test.mjs web/tests/archive-delete.test.mjs
       - name: Browser test dependencies
         working-directory: web
         run: |
@@ -53,6 +53,7 @@ jobs:
           node web/tests/directory-browser.test.mjs
           node web/tests/session-browser.test.mjs
           node web/tests/language-browser.test.mjs
+          node web/tests/archive-delete-browser.test.mjs
       - name: Cloudflare redirects and offline cache upgrades
         run: node web/tests/service-worker.test.mjs
       - name: Keep UI evidence
@@ -91,6 +92,7 @@ jobs:
           node web/tests/form-requirements-browser.test.mjs
           node web/tests/growth-admin-browser.test.mjs
           node web/tests/vaccine-picker-browser.test.mjs
+          node web/tests/archive-delete-browser.test.mjs
       - name: Keep family UI evidence
         if: always()
         uses: actions/upload-artifact@v4
