@@ -183,7 +183,7 @@ function render(){
 async function refreshVaccinationClinic(){
   const active=store;if(openingVaccination)return;if(companion()&&!active?.family?.partner)return;if(!active||active.pending||!active.proof||!navigator.onLine||document.querySelector('dialog[open]')||(!companion()&&!['vaccines','guides'].includes(effectiveType()))||Date.now()-vaccinationRefreshAt<1500)return;
  vaccinationRefreshAt=Date.now();
-  try{await active.load();if(store===active&&!$('#workspace-view').hidden&&(companion()||['vaccines','guides'].includes(effectiveType())))route();}
+  try{await active.load();if(store===active&&!$('#workspace-view').hidden&&!document.querySelector('dialog[open]')&&(companion()||['vaccines','guides'].includes(effectiveType()))){if(companion()&&!active.family?.partner)route();else render();}}
  catch(error){if(store===active&&error.status){active.error=error.message;updateStorageNotice();}}
 }
 
