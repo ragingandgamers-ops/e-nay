@@ -91,3 +91,4 @@ body.workspace-active>.language-bar{display:none}
 .archive-record dt{color:var(--text-secondary)}
 .archive-record dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:600px){.bulk-toolbar>span{margin-left:auto}.bulk-toolbar>.row-button{flex:1}.admin-row{flex-wrap:wrap}.admin-row>.row-actions{width:100%;justify-content:flex-end}}
+@media(max-width:760px){#record-results tr{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#record-results td:last-child{grid-column:1/-1;flex-wrap:wrap;gap:8px;min-width:0}#record-results .record-select{min-height:44px}}
