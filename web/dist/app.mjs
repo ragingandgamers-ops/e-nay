@@ -9,6 +9,7 @@ import {api} from './accounts.mjs';
 import {familyPanel,companionSettings,mountFamily} from './family-ui.mjs';
 import {updateFieldRequirements,updateMaternalRequirements} from './forms.mjs';
 import {mountGrowthForm} from './growth-ui.mjs';
+import {mountPasswordIssuer} from './recovery-ui.mjs';
 import {planRecordDeletion} from './trash-plan.mjs';
 import {mountAdministration} from './admin-ui.mjs';
 import {searchText,orderItems,pageItems} from './lists.mjs';
@@ -169,7 +170,7 @@ function render(){
  const request=++accessRender;
  updateStorageNotice();$('#page-content').innerHTML=page==='access'?heading('Patient access','Link verified patient accounts to their own care profiles.')+markup('<p id="access-loading">Loading patient accounts…</p>'):page==='manage'?heading('Accounts & trash','Staff-only account controls and recoverable deleted records.')+markup('<div id="admin-root"><p>Loading clinic administration…</p></div>'):page==='overview'?renderOverview():page==='backup'?renderBackup():page==='guides'?renderGuides():page==='tasks'?renderClinicTaskQueue(data(),taskKind):[ 'mothers','children'].includes(page)?renderFamilyRecords():renderRecords(page);
  $('#workspace-nav').querySelectorAll('a').forEach(a=>{if(a.dataset.page===(page==='tasks'?'overview':page))a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
- mountFamily($('#page-content'),store,route);if(page==='manage')mountAdministration($('#admin-root'),store,{onDelete:(account)=>openTrashConfirmation('account',null,account.id),onRestore:(entry)=>openRestoreConfirmation(entry)}).catch(error=>{const root=$('#admin-root');if(root)setText(root,error.message);});
+ mountFamily($('#page-content'),store,route);if(page==='manage')mountAdministration($('#admin-root'),store,{onDelete:(account)=>openTrashConfirmation('account',null,account.id),onRestore:(entry)=>openRestoreConfirmation(entry),onRecover:(account)=>{info('Issue recovery code','');mountPasswordIssuer($('#info-body'),store,account,route);}}).catch(error=>{const root=$('#admin-root');if(root)setText(root,error.message);});
  if(page==='access'){const activeStore=store;patientAccess(store).then(directory=>{if(page==='access'&&store===activeStore&&request===accessRender){$('#page-content').innerHTML=heading('Patient access','Link verified patient accounts to their own care profiles.')+directory.html;directory.mount($('#patient-access-directory'));}}).catch(error=>{if(page==='access'&&store===activeStore&&request===accessRender)setText($('#access-loading'),error.message);});}
  if($('#chart-patient'))renderChart($('#chart-patient').value);
  const activeTab=$('.record-tabs [aria-current="page"]');if(activeTab){const tabs=activeTab.parentElement;if(activeTab.offsetLeft+activeTab.offsetWidth>tabs.offsetLeft+tabs.clientWidth)tabs.scrollLeft=activeTab.offsetLeft-tabs.offsetLeft+activeTab.offsetWidth-tabs.clientWidth;}

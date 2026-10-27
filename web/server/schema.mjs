@@ -19,6 +19,14 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
  mother_id TEXT PRIMARY KEY REFERENCES accounts(id),
  code_hash TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS password_recovery_requests (
+ account_id TEXT PRIMARY KEY REFERENCES accounts(id), requested_at INTEGER NOT NULL, resolved_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS password_recovery_codes (
+ account_id TEXT PRIMARY KEY REFERENCES accounts(id), code_hash TEXT NOT NULL UNIQUE,
+ nonce TEXT NOT NULL UNIQUE, expires_at INTEGER NOT NULL, issued_by TEXT NOT NULL REFERENCES accounts(id),
+ credential_hash TEXT NOT NULL, issuer_hash TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions (
  proof_hash TEXT PRIMARY KEY, device_hash TEXT NOT NULL,
  account_id TEXT NOT NULL REFERENCES accounts(id), expires_at INTEGER NOT NULL

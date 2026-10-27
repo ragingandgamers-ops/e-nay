@@ -2,7 +2,7 @@ import {validateData} from '../dist/core.mjs';
 import {planRecordDeletion,planRecordRestore} from '../dist/trash-plan.mjs';
 export async function handleAdmin(request,env,account,path,method,{bodyOf,reply,ApiError,workspaceFor}){
  const db=env.DB;if(account.role!=='staff')throw new ApiError(403,'Clinic administration is available to staff only.');
- if(path==='/api/admin/accounts'&&method==='GET'){const rows=await db.prepare('SELECT id,username,display_name,role,active FROM accounts ORDER BY username').all();return reply({accounts:rows.results.map(r=>({id:r.id,username:r.username,displayName:r.display_name,role:r.role,active:Boolean(r.active),current:r.id===account.id}))});}
+ if(path==='/api/admin/accounts'&&method==='GET'){const rows=await db.prepare('SELECT a.id,a.username,a.display_name,a.role,a.active,r.requested_at FROM accounts a LEFT JOIN password_recovery_requests r ON r.account_id=a.id AND r.resolved_at IS NULL ORDER BY a.username').all();return reply({accounts:rows.results.map(r=>({id:r.id,username:r.username,displayName:r.display_name,role:r.role,active:Boolean(r.active),current:r.id===account.id,recoveryRequestedAt:r.requested_at??null}))});}
  if(path==='/api/admin/trash'&&method==='GET'){const rows=await db.prepare("SELECT id,kind,summary,deleted_at,json_extract(body,'$.type') AS record_type FROM trash_entries WHERE restored_at IS NULL ORDER BY deleted_at DESC").all();return reply({entries:rows.results});}
  if(!['/api/admin/delete','/api/admin/restore'].includes(path)||method!=='POST')throw new ApiError(404,'This operation is not available.');
  const input=await bodyOf(request),current=await db.prepare("SELECT * FROM workspace WHERE id='clinic'").first();
@@ -31,6 +31,7 @@ export async function handleAdmin(request,env,account,path,method,{bodyOf,reply,
    statements.push(db.prepare("UPDATE workspace SET revision=?,last_operation=?,updated_at=? WHERE id='clinic' AND revision=? AND EXISTS(SELECT 1 FROM accounts WHERE id=? AND active=1 AND role=? AND id<>? AND (role<>'staff' OR (SELECT count(*) FROM accounts WHERE active=1 AND role='staff')>1))").bind(revision,conditionId,now,current.revision,target.id,target.role,account.id));
    statements.push(db.prepare("UPDATE accounts SET active=0 WHERE id=? AND active=1 AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(target.id,conditionId));
    statements.push(db.prepare('DELETE FROM sessions WHERE account_id=?'+conditional.replace(' WHERE EXISTS',' AND EXISTS')).bind(target.id,conditionId));
+   statements.push(db.prepare('DELETE FROM password_recovery_codes WHERE (account_id=? OR issued_by=?)'+conditional.replace(' WHERE EXISTS',' AND EXISTS')).bind(target.id,target.id,conditionId));
    statements.push(db.prepare("DELETE FROM companion_links WHERE (father_id=? OR mother_id=?) AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(target.id,target.id,conditionId));
    statements.push(db.prepare("DELETE FROM pairing_codes WHERE mother_id=? AND EXISTS(SELECT 1 FROM workspace WHERE id='clinic' AND last_operation=?)").bind(target.id,conditionId));
    statements.push(db.prepare('INSERT INTO trash_entries(id,kind,summary,body,deleted_by,deleted_at) SELECT ?,?,?,?,?,?'+conditional).bind(conditionId,kind,summary,JSON.stringify(payload),account.id,now,conditionId));

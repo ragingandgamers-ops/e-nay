@@ -4,6 +4,7 @@ import {validateData,emptyData,normalize} from '../dist/core.mjs';
 import {applyRecordOperations,nextProfileId} from '../dist/record-operations.mjs';
 import {SCHEMA,MAX_COMPANIONS,migrateCompanions} from './schema.mjs';
 import {handleAdmin} from './admin.mjs';
+import {handleRecovery} from './recovery.mjs';
 
 const readyDatabases=new WeakMap();
 const MAX_BODY=1500000;
@@ -258,7 +259,8 @@ async function api(request,env){
  await setup(env.DB);
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)throw new ApiError(403,'This request must come from the E-Nay website.');
- if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'companions-v2'});
+ if(path==='/api/status'&&method==='GET')return reply({ready:true,version:'password-recovery-v1'});
+ if(path.startsWith('/api/password/'))return handleRecovery(request,env,null,path,method,{bodyOf,reply,ApiError,limit,credentials,passwordHash,passwordMatches,digest,randomBytes});
  if(path==='/api/register'&&method==='POST'){
   const raw=await bodyOf(request),{username,password}=credentials(raw);
   if(raw.role&&raw.role!=='patient')throw new ApiError(403,'Staff access is assigned by the clinic; it cannot be selected during registration.');
@@ -283,11 +285,12 @@ async function api(request,env){
   const previousDevice=cookieValue(request,cookieName(request,env));
   const device=previousDevice&&/^[a-f0-9]{64}$/.test(previousDevice)?previousDevice:randomBytes(32).toString('hex');
   const proof=randomBytes(32).toString('hex'),expiresAt=Date.now()+12*60*60*1000;
-  await env.DB.prepare('INSERT INTO sessions(proof_hash,device_hash,account_id,expires_at) VALUES(?,?,?,?)').bind(digest(proof),digest(device),account.id,expiresAt).run();
+  const established=await env.DB.prepare('INSERT INTO sessions(proof_hash,device_hash,account_id,expires_at) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM accounts WHERE id=? AND active=1 AND password_hash=?)').bind(digest(proof),digest(device),account.id,expiresAt,account.id,account.password_hash).run();if(established.meta.changes!==1)throw new ApiError(401,'The username or password is incorrect.');
   await env.DB.prepare('DELETE FROM auth_limits WHERE bucket=?').bind(digest('login-user:'+username)).run();
   return reply({account:publicAccount(account),proof,expiresAt},200,{'Set-Cookie':`${cookieName(request,env)}=${device}; Path=/; HttpOnly; SameSite=Strict; Max-Age=1209600${isDevelopment(request,env)?'':'; Secure'}`});
  }
  const account=await accountFor(request,env);
+ if(path==='/api/admin/password-code')return handleRecovery(request,env,account,path,method,{bodyOf,reply,ApiError,limit,credentials,passwordHash,passwordMatches,digest,randomBytes});
  if(path.startsWith('/api/admin/'))return handleAdmin(request,env,account,path,method,{bodyOf,reply,ApiError,workspaceFor});
  if(path.startsWith('/api/family'))return familyApi(request,env,account,path,method);
  if(path==='/api/me'&&method==='GET')return reply({account:publicAccount(account)});

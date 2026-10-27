@@ -2,6 +2,7 @@ import {applyRecordOperations,nextProfileId} from './record-operations.mjs';
 import {emptyData,validateData} from './core.mjs';
 import {deriveVaultKey as keyFor,saveTabSession,readTabSession,forgetTabSession} from './tab-session.mjs';
 
+export class OfflineCopyLockedError extends Error {constructor(username,generation){super('The saved copy on this device needs your previous password. Your clinic records and saved copy are unchanged.');this.username=username;this.generation=generation;}}
 export class ApiError extends Error { constructor(message,status=0){super(message);this.status=status;} }
 export async function api(path,{method='GET',body,proof,signal}={}){
  let response;
@@ -55,7 +56,7 @@ function rebasePending(batches,local,result,role){
 
 export class AccountStore {
  constructor(account,proof=''){this.account=account;this.proof=proof;this.data=emptyData();this.catalog=[];this.reservedProfileIds=[];this.family=null;this.raw=null;this.blocked=false;this.error='';this.message='';this.cacheEnabled=false;this.pending=null;this.baseRevision='initial';this.queue=Promise.resolve();this.closed=false;}
- static async signIn(username,password){
+ static async signIn(username,password,{previousPassword='',replaceOfflineCopy=false,expectedGeneration=null}={}){
   username=username.trim().toLowerCase();let row,cacheAvailable=true;
   try{row=await cached(username);}catch{cacheAvailable=false;}
   let login;
@@ -70,14 +71,18 @@ export class AccountStore {
   try{
    const cloud=await api('workspace',{proof:login.proof});
    let previous;
-   if(row){previous=await decrypt(row,password);if(row.account.id!==login.account.id)throw new Error('This username belongs to a different account. Contact the clinic before replacing this device copy.');}
+   if(row){if(row.account.id!==login.account.id)throw new Error('This username belongs to a different account. Contact the clinic before replacing this device copy.');if(replaceOfflineCopy&&expectedGeneration!==row.generation)throw new Error('The saved copy changed in another tab. Sign in again before replacing it.');try{previous=await decrypt(row,previousPassword||password);}catch{if(!replaceOfflineCopy)throw new OfflineCopyLockedError(username,row.generation);}}
    store.account=cloud.account??store.account;store.family=cloud.family??null;store.data=cloud.data;store.catalog=cloud.catalog??[];store.reservedProfileIds=cloud.reservedProfileIds??[];store.baseRevision=cloud.revision;
    if(previous?.payload.pending&&row.account.role===login.account.role){store.data=previous.payload.data;store.pending=previous.payload.pending;store.baseRevision=previous.payload.baseRevision;}
    if(previous?.payload.pending&&row.account.role!==login.account.role)throw new Error('Your clinic role changed while this device had pending edits. Ask the clinic administrator to review those edits; they have not been uploaded or removed.');
-   if(cacheAvailable){store.key=previous?.key??await keyFor(password,store.salt=crypto.getRandomValues(new Uint8Array(16)));store.salt=row?.salt??store.salt;store.raw=row?.generation??null;store.cacheEnabled=true;await store.persist(store.data,store.pending,store.baseRevision);}
+   if(cacheAvailable){if(previous&&!previousPassword){store.key=previous.key;store.salt=row.salt;}else{store.salt=crypto.getRandomValues(new Uint8Array(16));store.key=await keyFor(password,store.salt);}store.raw=row?.generation??null;store.cacheEnabled=true;await store.persist(store.data,store.pending,store.baseRevision);}
    store.message=store.cacheEnabled?'Cloud connected · Encrypted copy on device':'Online only · Offline storage unavailable';
    if(store.pending)await store.sync();await saveTabSession(store,password);return store;
   }catch(error){await api('logout',{method:'POST',body:{},proof:login.proof}).catch(()=>{});store.close();throw error;}
+ }
+ static async encryptedCopyBackup(username,generation){
+  const row=await cached(username);if(!row||row.generation!==generation)throw new Error('The saved copy changed in another tab. Sign in again before replacing it.');
+  return JSON.stringify({format:'enay-encrypted-offline-copy-v1',username:row.username,account:row.account,generation:row.generation,salt:Array.from(row.salt),iv:Array.from(row.iv),cipher:Array.from(new Uint8Array(row.cipher))});
  }
  static async resume(){
   const ticket=await readTabSession();if(!ticket)return null;
