@@ -24,6 +24,9 @@ const assets={async fetch(request){
 const server=createServer(async(req,res)=>{
  try{
   const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>1600000){res.writeHead(413);res.end();return;}chunks.push(chunk);}
+  // Only disposable --test fixtures can reset counters between browser suites.
+  // This route is absent from the production worker and from normal local data.
+  if(testMode&&req.method==='POST'&&req.url==='/__test/reset-auth'&&req.headers.origin===`http://127.0.0.1:${port}`){await db.prepare('DELETE FROM auth_limits').run();res.writeHead(204);res.end();return;}
   const request=new Request(`http://127.0.0.1:${port}${req.url}`,{method:req.method,headers:req.headers,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})});
   const response=await worker.fetch(request,{DB:db,ASSETS:assets,DEVELOPMENT:'true'});
   res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
