@@ -980,6 +980,7 @@ export const filipino={
 "One-time recovery code":"Recovery code na isang beses lang magagamit",
 "Expires in 15 minutes. Issuing another code cancels this one.":"May bisa sa loob ng 15 minuto. Mawawalan ito ng bisa kapag nagbigay ng bagong code.",
 "Ask them to choose Forgot password? on the sign-in page, then I have a recovery code.":"Ipapili sa kanila ang Nakalimutan ang password? sa pahina ng pag-sign in, pagkatapos ang May recovery code na ako.",
+"Copied":"Nakopya na",
 "Copy recovery code":"Kopyahin ang recovery code",
 "Show password help requests only":"Ipakita lamang ang humihingi ng tulong sa password",
 "Password help requested":"Humihingi ng tulong sa password",
