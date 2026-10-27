@@ -16,6 +16,7 @@ import {searchText,orderItems,pageItems} from './lists.mjs';
 import {pagination} from './directory-ui.mjs';
 const $=s=>document.querySelector(s);
 const selectedRecords=new Map();
+let formIntent=0,openingVaccination=null;
 initLanguage();
 for(const link of document.querySelectorAll('#workspace-nav [data-page]'))link.querySelector('span').innerHTML=icon(link.dataset.page);
 const FLOWER=markup("<svg class=\"flower-mark\" viewBox=\"0 0 100 100\" fill=\"none\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M50 12v76M12 50h76M23 23l54 54M23 77l54-54\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\"/></svg>");
@@ -188,7 +189,7 @@ async function refreshVaccinationClinic(){
 }
 
 function updateAccountEntries(){const title=!store?'Sign in / Sign up':staff()?'Go to clinic dashboard':'Go to my dashboard';for(const span of document.querySelectorAll('[data-entry-label]'))setText(span,title);}
-function route(){selectedRecords.clear();updateAccountEntries();const wasWorkspace=!$('#workspace-view').hidden,previousPage=page;const hash=location.hash.slice(1);const workspace=hash==='workspace'||hash.startsWith('workspace/');$('#home-view').hidden=workspace;$('#workspace-view').hidden=!workspace||!store;
+function route(){formIntent++;selectedRecords.clear();updateAccountEntries();const wasWorkspace=!$('#workspace-view').hidden,previousPage=page;const hash=location.hash.slice(1);const workspace=hash==='workspace'||hash.startsWith('workspace/');$('#home-view').hidden=workspace;$('#workspace-view').hidden=!workspace||!store;
  document.body.classList.toggle('workspace-active',workspace&&Boolean(store));
  accountUI.hide();if(workspace&&!store){accountUI.show();$('.skip-link').href='#auth-main';document.title=t('Sign in')+' — E-Nay';return;}
  $('.skip-link').href=workspace?'#workspace-main':'#main';
@@ -216,7 +217,7 @@ function updateRequestVaccineGuidance(){
  setText($('#request-vaccine-guidance'),message);
  $('#record-submit-label').closest('button').disabled=!available&&!previous;
 }
-let openingVaccination=false;
+
 function fields(type){
   if(type==='guides')return [field('title','Article title','text',{wide:true,maxLength:160}),field('category','Topic','select',{options:GUIDE_CATEGORIES}),field('status','Publication status','select',{options:['Draft','Published','Archived']}),field('summary','Short description','textarea',{optional:true,wide:true,maxLength:320}),field('content','Article text','textarea',{wide:true,maxLength:12000,hint:'Use paragraphs or line breaks. Text is shared as written, without automatic medical review.'}),field('titleFil','Filipino title','text',{optional:true,wide:true,maxLength:160}),field('summaryFil','Filipino short description','textarea',{optional:true,wide:true,maxLength:320}),field('contentFil','Filipino article text','textarea',{optional:true,wide:true,maxLength:12000,hint:'Optional: add both a Filipino title and article. Otherwise readers see the English version.'}),field('sourceName','Source / clinic','text',{optional:true,wide:true,maxLength:160}),field('resourceUrl','Link to material','url',{optional:true,wide:true,maxLength:2048,placeholder:'https://…',hint:'Link to a PDF, video or article. Linked files are not uploaded or downloaded for offline use.'})];
  const profile=[field('id','Profile ID','text',{hint:type==='mothers'?'M + exactly 3 digits, e.g. M001':'C + exactly 3 digits, e.g. C001',placeholder:type==='mothers'?'M001':'C001'}),field('name',type==='mothers'?'Mother’s name':'Child’s name','text',{autocomplete:'name'}),field('status','Monitoring status','select',{options:['Active','Inactive']}),field('contact','Contact number','tel',{optional:true,placeholder:'09… or +63…'}),field('barangay','Barangay / location','text',{optional:true,wide:true})];
@@ -238,7 +239,8 @@ function fields(type){
  return [field('vaccine','Vaccine name'),field('batch','Batch ID'),field('stock','Available doses','number',{min:0,max:100000,step:1}),field('threshold','Low-stock alert at','number',{min:0,max:100000,step:1,hint:'Alert when available doses are at or below this number.'}),field('expires','Expiration date','date')];
 }
 async function openForm(type,id=null,prefill={}){
- if((['mothers','children','growth','vaccines'].includes(type))&&!store.pending&&store.proof&&navigator.onLine){if(openingVaccination)return;openingVaccination=true;const active=store,hash=location.hash;try{await active.load();}catch(error){if(error.status){toast(error.message);return;}toast(type==='growth'?'Could not refresh clinic records. Showing this device’s saved copy.':'Could not refresh stock. Showing this device’s saved copy.');}finally{openingVaccination=false;}if(store!==active||location.hash!==hash)return;}
+ const intent=++formIntent;
+ if((['mothers','children','growth','vaccines'].includes(type))&&!store.pending&&store.proof&&navigator.onLine){const active=store,hash=location.hash;let request=openingVaccination;if(!request||request.store!==active){request={store:active,promise:active.load()};openingVaccination=request;toast('Loading current clinic records…');}try{await request.promise;}catch(error){if(store!==active||intent!==formIntent)return;if(error.status){toast(error.message);return;}toast('Could not refresh clinic records. Showing this device’s saved copy.');}finally{if(openingVaccination===request)openingVaccination=null;}if(store!==active||location.hash!==hash||intent!==formIntent)return;}
  if(companion()){toast('Companion access is read-only. The mother or clinic staff can update records.');return;}
  if(!staff()&&type==='mothers'&&!id&&(store.account.kind==='mother'||data().mothers.length)){const own=data().mothers.find(m=>m.id===store.account.maternalId)??data().mothers[0];if(own)openForm('mothers',own.id);return;}
   if(type==='children'&&!id&&page==='mothers'&&profileId)prefill={motherId:profileId,...prefill};
@@ -325,7 +327,7 @@ async function openRestoreConfirmation(entry){
 
 function closeForm(){const changed=JSON.stringify(Object.fromEntries(new FormData($('#record-form'))))!==formBaseline;if(changed&&!window.confirm(t('Discard the unsaved values in this form?')))return;$('#form-dialog').close();lastFocus?.focus();}
 $('#close-form').onclick=closeForm;$('#cancel-form').onclick=closeForm;$('#form-dialog').addEventListener('cancel',e=>{e.preventDefault();closeForm();});
-$('#record-form').onsubmit=async e=>{e.preventDefault();if(!editing)return;const form=e.currentTarget;const raw=Object.fromEntries(new FormData(form));if(editing.id)raw.id=editing.id;if(editing.type==='vaccines'&&editing.before?.approvalStatus)raw.patient=editing.before.patient;if(editing.type==='vaccines'&&staff()&&editing.before?.approvalStatus==='Pending verification'&&raw.approvalStatus==='Approved')raw.stockMode='clinic';
+$('#record-form').onsubmit=async e=>{e.preventDefault();if(!editing)return;const form=e.currentTarget;const raw=Object.fromEntries(new FormData(form));if(editing.type==='mothers'&&$('#field-edd')?.disabled)raw.edd=editing.before?.edd??'';if(editing.id)raw.id=editing.id;if(editing.type==='vaccines'&&editing.before?.approvalStatus)raw.patient=editing.before.patient;if(editing.type==='vaccines'&&staff()&&editing.before?.approvalStatus==='Pending verification'&&raw.approvalStatus==='Approved')raw.stockMode='clinic';
  form.querySelectorAll('[aria-invalid]').forEach(x=>x.removeAttribute('aria-invalid'));form.querySelectorAll('.field-error').forEach(x=>setText(x,''));$('#form-error').hidden=true;
  const submit=form.querySelector('[type=submit]');submit.disabled=true;
  try{const save=()=>store.save(editing.type,raw,editing.id,{before:editing.before,epoch:editing.epoch});if(navigator.locks)await navigator.locks.request('enay-record-write',save);else await save();$('#form-dialog').close();render();toast(store.pending?'Saved in your encrypted offline copy. Clinic sync is pending.':editing.type==='vaccines'?staff()?'Vaccination decision saved. Clinic stock is updated.':raw.approvalStatus==='Cancelled'?'Vaccination request cancelled.':'Your request was sent to the clinic for verification.':editing.type==='guides'?(raw.status==='Published'?'Guide published to patient accounts.':raw.status==='Archived'?'Guide archived. It will be hidden from patients after their next sync.':'Guide draft saved. Only staff can see it.'):'Record saved to the clinic.');const focus=document.contains(lastFocus)?lastFocus:$('#page-content h1');if(focus){if(focus.tagName==='H1')focus.tabIndex=-1;focus.focus({preventScroll:true});}}

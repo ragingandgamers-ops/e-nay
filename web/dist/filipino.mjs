@@ -1,6 +1,8 @@
 // UI copy only. Record values, identifiers, API payloads and exported data keep
 // their original language and canonical values.
 export const filipino={
+"Not needed when not pregnant.":"Hindi kailangan kapag hindi buntis.",
+"Loading current clinic records…":"Nilo-load ang kasalukuyang mga rekord ng klinika…",
 "This form was opened before records were archived. Close it and open the current patient record before saving.":"Binuksan ang form bago inilipat sa archive ang mga rekord. Isara ito at buksan ang kasalukuyang rekord ng pasyente bago mag-save.",
 "Accounts & archive":"Mga account at archive",
 "Account administration sections":"Mga seksiyon ng pamamahala ng account",

@@ -1,4 +1,4 @@
-import {label} from './language.mjs';
+import {label,setText} from './language.mjs';
 // Derive markers from live constraints so conditional fields cannot keep stale labels.
 export function updateFieldRequirements(root){
  for(const control of root.querySelectorAll('input[id],select[id],textarea[id]')){
@@ -11,6 +11,10 @@ export function updateFieldRequirements(root){
  }
 }
 export function updateMaternalRequirements(root){
- for(const status of root.querySelectorAll('[name=pregnancyStatus]')){const form=status.closest('form')??root,due=form.querySelector('[name=edd]');if(due)due.required=status.value==='Pregnant'&&!status.disabled&&!due.disabled;}
+ for(const status of root.querySelectorAll('[name=pregnancyStatus]')){const form=status.closest('form')??root,due=form.querySelector('[name=edd]');if(!due)continue;
+  const notPregnant=status.value==='Not pregnant';due.disabled=status.disabled||notPregnant;due.required=status.value==='Pregnant'&&!status.disabled;due.setAttribute('aria-disabled',String(due.disabled));
+  let hint=form.querySelector('#'+due.id+'-not-needed');if(!hint){hint=document.createElement('span');hint.id=due.id+'-not-needed';hint.className='hint';setText(hint,'Not needed when not pregnant.');due.after(hint);}
+  hint.hidden=!notPregnant||status.disabled;
+ }
  updateFieldRequirements(root);
 }

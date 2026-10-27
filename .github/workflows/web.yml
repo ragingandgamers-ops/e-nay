@@ -54,6 +54,7 @@ jobs:
           node web/tests/session-browser.test.mjs
           node web/tests/language-browser.test.mjs
           node web/tests/archive-delete-browser.test.mjs
+          node web/tests/form-navigation-browser.test.mjs
       - name: Cloudflare redirects and offline cache upgrades
         run: node web/tests/service-worker.test.mjs
       - name: Keep UI evidence
@@ -93,6 +94,7 @@ jobs:
           node web/tests/growth-admin-browser.test.mjs
           node web/tests/vaccine-picker-browser.test.mjs
           node web/tests/archive-delete-browser.test.mjs
+          node web/tests/form-navigation-browser.test.mjs
       - name: Keep family UI evidence
         if: always()
         uses: actions/upload-artifact@v4

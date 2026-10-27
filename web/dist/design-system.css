@@ -90,5 +90,6 @@ body.workspace-active>.language-bar{display:none}
 .archive-record dl{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,2fr);gap:10px 16px;margin-top:16px}
 .archive-record dt{color:var(--text-secondary)}
 .archive-record dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+input[name=edd]:disabled{background:var(--surface-subtle);color:var(--text-secondary);-webkit-text-fill-color:var(--text-secondary);border-color:var(--border);cursor:not-allowed;opacity:1}
 @media(max-width:600px){.bulk-toolbar>span{margin-left:auto}.bulk-toolbar>.row-button{flex:1}.admin-row{flex-wrap:wrap}.admin-row>.row-actions{width:100%;justify-content:flex-end}}
 @media(max-width:760px){#record-results tr{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#record-results td:last-child{grid-column:1/-1;flex-wrap:wrap;gap:8px;min-width:0}#record-results .record-select{min-height:44px}}
